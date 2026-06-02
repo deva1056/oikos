@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from core.auth import is_allowed
-from core.memory import get_member_name, load_memory, register_member
+from core.memory import get_member_name, register_member
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,6 @@ ASKING_NAME = 1
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    memory = load_memory()
     user_id = str(update.effective_user.id)
 
     if not is_allowed(user_id):
@@ -20,7 +19,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Извини, это закрытый семейный бот.")
         return ConversationHandler.END
 
-    name = get_member_name(memory, user_id)
+    name = get_member_name(user_id)
     if name:
         await update.message.reply_text(
             f"Привет, {name}! 👋\n\n"
@@ -41,11 +40,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    memory = load_memory()
     user_id = str(update.effective_user.id)
     name = update.message.text.strip()
 
-    register_member(memory, user_id, name)
+    register_member(user_id, name)
     logger.info(f"Зарегистрирован: {name} (id={user_id})")
 
     await update.message.reply_text(

@@ -2,28 +2,42 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.auth import is_allowed
-from core.memory import get_member_name, load_memory, save_memory
+from core.memory import (
+    delete_user_notes,
+    get_all_members,
+    get_member_name,
+    get_user_notes,
+)
 
 
 async def list_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    memory = load_memory()
     user_id = str(update.effective_user.id)
 
     if not is_allowed(user_id):
         await update.message.reply_text("⛔ Нет доступа.")
         return
-    if not get_member_name(memory, user_id):
+    if not get_member_name(user_id):
         await update.message.reply_text("Сначала напиши /start")
         return
-    if not memory["notes"]:
+
+    notes = get_user_notes(user_id)
+    if not notes:
         await update.message.reply_text("Заметок пока нет.")
         return
 
-    lines = ["📋 *Все заметки семьи:*\n"]
-    for note in memory["notes"][-20:]:
-        ts = note["timestamp"][:16].replace("T", " ")
-        tags_str = " ".join([f"#{t}" for t in note["tags"]])
-        lines.append(f"*{note['author']}* [{ts}]\n{note['text']}\n{tags_str}")
+    lines = ["📝 *Твои заметки:*\n"]
+    for note in notes:
+        if note["visibility"] == "private":
+            icon = "🔒 ПРИВАТНАЯ"
+            text = note["private_text"]
+        elif note["visibility"] == "interpretation":
+            icon = "👥 ИНТЕРПРЕТАЦИЯ"
+            text = f"Суть: {note['public_interpretation']}"
+        else:  # public
+            icon = "🌐 ПУБЛИЧНАЯ"
+            text = note["public_text"]
+
+        lines.append(f"*{icon}*\n{text}\n/edit_{note['id']}")
 
     text = "\n\n".join(lines)
     if len(text) > 4000:
@@ -32,51 +46,49 @@ async def list_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    memory = load_memory()
     user_id = str(update.effective_user.id)
 
     if not is_allowed(user_id):
         await update.message.reply_text("⛔ Нет доступа.")
         return
-    if not memory["members"]:
+
+    members_list = get_all_members()
+    if not members_list:
         await update.message.reply_text("Пока никто не зарегистрирован.")
         return
 
-    names = [m["name"] for m in memory["members"].values()]
     await update.message.reply_text(
-        "👨‍👩‍👧‍👦 *Члены семьи:*\n" + "\n".join([f"• {n}" for n in names]),
+        "👨‍👩‍👧‍👦 *Члены семьи:*\n" + "\n".join([f"• {m}" for m in members_list]),
         parse_mode="Markdown",
     )
 
 
 async def clear_my_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    memory = load_memory()
     user_id = str(update.effective_user.id)
 
     if not is_allowed(user_id):
         await update.message.reply_text("⛔ Нет доступа.")
         return
-    if not get_member_name(memory, user_id):
+    if not get_member_name(user_id):
         await update.message.reply_text("Сначала напиши /start")
         return
 
-    before = len(memory["notes"])
-    memory["notes"] = [n for n in memory["notes"] if n["author_id"] != str(user_id)]
-    save_memory(memory)
-    await update.message.reply_text(f"🗑 Удалено {before - len(memory['notes'])} твоих заметок.")
+    notes_before = len(get_user_notes(user_id))
+    delete_user_notes(user_id)
+    await update.message.reply_text(f"🗑 Удалено {notes_before} твоих заметок.")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 *Робо — семейный помощник*\n\n"
         "*Просто пиши в свободной форме:*\n"
-        "• Заметка → сохраню и отмечу тегом\n"
+        "• Заметка → сохраню и предложу уровень видимости\n"
         "• Вопрос → отвечу на основе памяти семьи\n\n"
         "*Команды:*\n"
         "/start — регистрация\n"
-        "/notes — все заметки\n"
+        "/notes — все твои заметки\n"
         "/members — кто в боте\n"
-        "/clear — удалить свои заметки\n"
+        "/clear — удалить все свои заметки\n"
         "/help — эта справка",
         parse_mode="Markdown",
     )

@@ -16,6 +16,7 @@ from bot.handlers.commands import clear_my_notes, help_command, list_notes, memb
 from bot.handlers.messages import handle_message
 from bot.handlers.start import ASKING_NAME, receive_name, start
 from core.auth import ALLOWED_IDS
+from core.db import init_db
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    init_db()
+
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
         raise ValueError("TELEGRAM_TOKEN не задан в .env")
@@ -44,6 +47,11 @@ def main():
     app.add_handler(CommandHandler("members", members))
     app.add_handler(CommandHandler("clear", clear_my_notes))
     app.add_handler(CommandHandler("help", help_command))
+
+    from telegram.ext import CallbackQueryHandler
+    from bot.handlers.messages import save_note_callback
+    app.add_handler(CallbackQueryHandler(save_note_callback, pattern=r"^vis_"))
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info(f"✅ Робо запущен. Разрешённых ID: {len(ALLOWED_IDS)}")

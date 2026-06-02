@@ -34,20 +34,39 @@ def classify_and_tag(text: str) -> dict:
         return {"type": "note", "tags": ["прочее"]}
 
 
-def ask_claude(question: str, memory_text: str, asker_name: str) -> str:
+def generate_interpretation(private_text: str) -> str:
+    """Generate a delicate, public-safe interpretation of private text."""
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=100,
+        system="""Ты помощник для семейного бота. Твоя задача — переформулировать заметку в безопасную версию.
+
+Правила:
+- Скрывай интимные/личные детали
+- Сохраняй суть (о чём заметка)
+- Используй общие, деликатные формулировки
+- 1-2 короткие фразы
+- Отвечай ТОЛЬКО переформулировкой, без пояснений""",
+        messages=[{"role": "user", "content": private_text}],
+    )
+    return response.content[0].text.strip()
+
+
+def ask_claude(question: str, public_context: str, asker_name: str) -> str:
+    """Answer question based on ONLY public context."""
     response = client.messages.create(
         model=MODEL,
         max_tokens=1000,
         system=f"""Ты Робо — семейный AI-ассистент. Тебя спрашивает {asker_name}.
 
-Ниже — все заметки семьи (от всех её членов) в хронологическом порядке.
+Ниже — публичные заметки семьи (что люди согласились показать всем).
 Отвечай на русском языке, кратко и по делу.
 Если информации нет — честно скажи об этом.
-Если спрашивают о расписании — обращай внимание на даты и времена в заметках.
+Если спрашивают о расписании — обращай внимание на даты и времена.
 
-=== СЕМЕЙНАЯ ПАМЯТЬ ===
-{memory_text}
-=======================""",
+=== ПУБЛИЧНАЯ ПАМЯТЬ СЕМЬИ ===
+{public_context}
+=================================""",
         messages=[{"role": "user", "content": question}],
     )
     return response.content[0].text.strip()

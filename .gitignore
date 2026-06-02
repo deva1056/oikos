@@ -1,6 +1,9 @@
 .env
 data/memory.json
+data/oikos.db
 __pycache__/
 *.pyc
 .venv/
 venv/
+*.log
+.DS_Store
