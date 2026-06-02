@@ -18,16 +18,16 @@ def save_memory(memory: dict):
         json.dump(memory, f, ensure_ascii=False, indent=2)
 
 
-def get_member_name(memory: dict, user_id: str | int) -> str | None:
+def get_member_name(memory: dict, user_id) -> str:
     return memory["members"].get(str(user_id), {}).get("name")
 
 
-def register_member(memory: dict, user_id: str | int, name: str):
+def register_member(memory: dict, user_id, name: str):
     memory["members"][str(user_id)] = {"name": name}
     save_memory(memory)
 
 
-def add_note(memory: dict, user_id: str | int, author_name: str, text: str, tags: list[str]) -> dict:
+def add_note(memory: dict, user_id, author_name: str, text: str, tags: list) -> dict:
     note = {
         "id": len(memory["notes"]) + 1,
         "author_id": str(user_id),
