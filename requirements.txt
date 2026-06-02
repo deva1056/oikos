@@ -1,4 +1,6 @@
 anthropic>=0.105.0
 python-telegram-bot>=22.5
 python-dotenv>=1.2.0
+psycopg2-binary>=2.9.0
+
 

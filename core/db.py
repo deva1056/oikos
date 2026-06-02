@@ -1,20 +1,26 @@
-import sqlite3
 import os
-from pathlib import Path
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-DB_PATH = os.getenv("DB_PATH", "data/oikos.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL не задана в переменных окружения")
+
+
+def get_connection():
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
 
 
 def init_db():
-    Path(os.path.dirname(DB_PATH)).mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS members (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             telegram_id TEXT UNIQUE NOT NULL,
             name TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -25,7 +31,7 @@ def init_db():
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             author_id TEXT NOT NULL,
             author_name TEXT NOT NULL,
 
@@ -46,9 +52,3 @@ def init_db():
 
     conn.commit()
     conn.close()
-
-
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
