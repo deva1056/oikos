@@ -97,17 +97,27 @@ def add_note(user_id, author_name: str, text: str, tags: list,
 
 def update_note(note_id: int, author_id, text: str, tags: list,
                 event_date=None, event_time=None, note_type="note") -> int:
-    """Обновить свою заметку (текст + метаданные). status не трогаем — им
-    управляют /done /cancelwish. Возвращает число изменённых строк."""
+    """Обновить свою заметку (текст + метаданные). Возвращает число изменённых строк.
+
+    status синхронизируется с note_type:
+    - стало не-желанием → status=NULL;
+    - стало желанием, а статуса не было → 'open';
+    - уже было желанием (open/fulfilled/cancelled) → статус сохраняем.
+    """
     with db_cursor() as cur:
         cur.execute(
             """
             UPDATE notes
             SET text = %s, tags = %s, event_date = %s, event_time = %s, note_type = %s,
+                status = CASE
+                    WHEN %s <> 'wish' THEN NULL
+                    WHEN status IS NULL THEN 'open'
+                    ELSE status
+                END,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s AND author_id = %s
             """,
-            (text, json.dumps(tags), event_date, event_time, note_type, note_id, str(author_id)),
+            (text, json.dumps(tags), event_date, event_time, note_type, note_type, note_id, str(author_id)),
         )
         return cur.rowcount
 
