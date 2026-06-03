@@ -14,6 +14,8 @@ from core.memory import (
 )
 from core.timeutils import now_prompt_str
 
+from bot.handlers._send import safe_reply
+
 
 def location_keyboard() -> ReplyKeyboardMarkup:
     """One-tap 'share location' keyboard used for timezone detection."""
@@ -51,7 +53,8 @@ async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     current = get_member_timezone(user_id)
     cur_txt = f"Текущая таймзона: *{current}*" if current else "Таймзона пока не задана."
-    await update.message.reply_text(
+    await safe_reply(
+        update.message,
         f"🕒 {cur_txt}\n\n"
         "Отправь геолокацию кнопкой ниже — определю автоматически.\n"
         "Или задай вручную: /timezone Europe/Berlin",
@@ -128,7 +131,8 @@ async def clear_my_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    await safe_reply(
+        update.message,
         "🤖 *Робо — семейный помощник*\n\n"
         "*Просто пиши в свободной форме:*\n"
         "• Заметка → сохраню и предложу уровень видимости\n"

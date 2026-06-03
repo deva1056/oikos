@@ -3,6 +3,7 @@ import logging
 from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import ContextTypes
 
+from bot.handlers._send import safe_reply
 from core.auth import is_allowed
 from core.memory import get_member_name, set_member_timezone
 from core.timeutils import now_prompt_str, tz_from_coords
@@ -30,7 +31,8 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     set_member_timezone(user_id, tz)
     logger.info("TZ для %s определена: %s", user_id, tz)
-    await update.message.reply_text(
+    await safe_reply(
+        update.message,
         f"📍 Готово! Твоя таймзона: *{tz}*\nСейчас у тебя {now_prompt_str(tz)}.",
         reply_markup=ReplyKeyboardRemove(),
         parse_mode="Markdown",
