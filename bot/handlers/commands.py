@@ -15,6 +15,8 @@ from core.memory import (
     get_note,
     get_notes_by_tag,
     get_user_notes,
+    normalize_tag,
+    remove_tag_from_note,
     set_member_timezone,
 )
 from core.timeutils import format_dt, now_prompt_str
@@ -87,7 +89,10 @@ async def list_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for note in notes:
         tags = json.loads(note["tags"]) if note.get("tags") else []
         tag_str = " ".join(f"#{t}" for t in tags)
-        lines.append(f"#{note['id']} {note['text']}" + (f"\n{tag_str}" if tag_str else ""))
+        when = ""
+        if note.get("event_date"):
+            when = f"\n🗓 {note['event_date']}" + (f" {note['event_time']}" if note.get("event_time") else "")
+        lines.append(f"#{note['id']} {note['text']}{when}" + (f"\n{tag_str}" if tag_str else ""))
 
     text = "\n\n".join(lines)
     if len(text) > 4000:
@@ -128,7 +133,7 @@ async def tag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Укажи тег: /tag планы")
         return
 
-    tag = context.args[0].lstrip("#")
+    tag = normalize_tag(context.args[0])
     notes = get_notes_by_tag(tag)
     if not notes:
         await update.message.reply_text(f"Заметок с #{tag} нет.")
@@ -154,7 +159,7 @@ async def addtag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if len(context.args) < 2:
-        await update.message.reply_text("Формат: /addtag <id> <тег>\nID заметки видно в /notes")
+        await update.message.reply_text("Формат: /addtag <id> <тег> [тег ...]\nID заметки видно в /notes")
         return
 
     try:
@@ -168,13 +173,45 @@ async def addtag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Заметка #{note_id} не найдена.")
         return
     if note["author_id"] != user_id:
-        await update.message.reply_text("Добавлять теги можно только к своим заметкам.")
+        await update.message.reply_text("Менять теги можно только у своих заметок.")
         return
 
-    tag = context.args[1].lstrip("#")
-    tags = add_tag_to_note(note_id, tag)
-    tag_str = " ".join(f"#{t}" for t in tags)
-    await update.message.reply_text(f"✅ Тег #{tag} добавлен к заметке #{note_id}.\nТеги: {tag_str}")
+    tags = add_tag_to_note(note_id, context.args[1:])
+    tag_str = " ".join(f"#{t}" for t in tags) or "(нет)"
+    await update.message.reply_text(f"✅ Теги заметки #{note_id}: {tag_str}")
+
+
+async def rmtag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not is_allowed(user_id):
+        await update.message.reply_text("⛔ Нет доступа.")
+        return
+    if not get_member_name(user_id):
+        await update.message.reply_text("Сначала напиши /start")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Формат: /rmtag <id> <тег>")
+        return
+
+    try:
+        note_id = int(context.args[0].lstrip("#"))
+    except ValueError:
+        await update.message.reply_text("ID должен быть числом. Формат: /rmtag <id> <тег>")
+        return
+
+    note = get_note(note_id)
+    if not note:
+        await update.message.reply_text(f"Заметка #{note_id} не найдена.")
+        return
+    if note["author_id"] != user_id:
+        await update.message.reply_text("Менять теги можно только у своих заметок.")
+        return
+
+    tag = normalize_tag(context.args[1])
+    tags = remove_tag_from_note(note_id, tag)
+    tag_str = " ".join(f"#{t}" for t in tags) or "(нет)"
+    await update.message.reply_text(f"🗑 Убрал #{tag}. Теги заметки #{note_id}: {tag_str}")
 
 
 async def members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -224,7 +261,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/notes — все твои заметки\n"
         "/tags — все теги семьи\n"
         "/tag <тег> — заметки с этим тегом\n"
-        "/addtag <id> <тег> — добавить тег к заметке\n"
+        "/addtag <id> <тег...> — добавить тег(и) к заметке\n"
+        "/rmtag <id> <тег> — убрать тег\n"
         "/members — кто в боте\n"
         "/timezone — задать таймзону (для «сегодня/вчера»)\n"
         "/clear — удалить все свои заметки\n"

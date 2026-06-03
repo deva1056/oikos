@@ -19,6 +19,7 @@ from bot.handlers.commands import (
     help_command,
     list_notes,
     members,
+    rmtag_command,
     tag_command,
     tags_command,
     timezone_command,
@@ -89,6 +90,7 @@ def main():
     app.add_handler(CommandHandler("tags", tags_command))
     app.add_handler(CommandHandler("tag", tag_command))
     app.add_handler(CommandHandler("addtag", addtag_command))
+    app.add_handler(CommandHandler("rmtag", rmtag_command))
     app.add_handler(CommandHandler("members", members))
     app.add_handler(CommandHandler("timezone", timezone_command))
     app.add_handler(CommandHandler("clear", clear_my_notes))

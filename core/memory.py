@@ -16,6 +16,19 @@ def sanitize_name(raw: str) -> str:
     return name[:64]
 
 
+def normalize_tag(tag: str) -> str:
+    """Механическая нормализация тега (регистр, ё, пробелы, мусор).
+
+    Namespace-двоеточие сохраняется (topic:врач). Семантическая консолидация
+    синонимов — задача LLM-тэггера (через список известных тегов), не этой функции.
+    """
+    tag = (tag or "").strip().lower().lstrip("#")
+    tag = tag.replace("ё", "е")
+    tag = re.sub(r"\s+", "_", tag)
+    tag = re.sub(r"[^a-zа-я0-9_:-]", "", tag)
+    return tag[:32]
+
+
 # ---------- members ----------
 
 def get_member_name(user_id) -> str:
@@ -58,20 +71,21 @@ def get_all_members() -> list:
 
 # ---------- notes ----------
 
-def add_note(user_id, author_name: str, text: str, tags: list) -> dict:
+def add_note(user_id, author_name: str, text: str, tags: list,
+             event_date=None, event_time=None) -> dict:
     """Сохранить заметку. `text` — финальная, согласованная через диалог версия.
 
-    Сырого/приватного поля нет by design: в БД попадает только то, что
-    автор утвердил для семьи.
+    event_date/event_time — машинно разрешённые дата/время события (для «что завтра»).
+    Сырого/приватного поля нет by design: в БД попадает только то, что автор утвердил.
     """
     with db_cursor() as cur:
         cur.execute(
             """
-            INSERT INTO notes (author_id, author_name, text, tags)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO notes (author_id, author_name, text, tags, event_date, event_time)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
-            (str(user_id), author_name, text, json.dumps(tags)),
+            (str(user_id), author_name, text, json.dumps(tags), event_date, event_time),
         )
         return dict(cur.fetchone())
 
@@ -168,17 +182,72 @@ def get_notes_by_tag(tag: str) -> list:
     return [dict(r) for r in rows if tag in _parse_tags(r["tags"])]
 
 
-def add_tag_to_note(note_id: int, tag: str) -> list:
-    """Добавить тег к заметке (если ещё нет). Возвращает новый список тегов или None."""
+def add_tag_to_note(note_id: int, new_tags) -> list:
+    """Добавить один или несколько тегов к заметке (с нормализацией, без дублей)."""
+    if isinstance(new_tags, str):
+        new_tags = [new_tags]
     note = get_note(note_id)
     if not note:
         return None
     tags = _parse_tags(note["tags"])
-    if tag not in tags:
-        tags.append(tag)
+    changed = False
+    for raw in new_tags:
+        t = normalize_tag(raw)
+        if t and t not in tags:
+            tags.append(t)
+            changed = True
+    if changed:
         with db_cursor() as cur:
             cur.execute(
                 "UPDATE notes SET tags = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
                 (json.dumps(tags), note_id),
             )
     return tags
+
+
+def remove_tag_from_note(note_id: int, tag: str) -> list:
+    """Убрать тег из заметки. Возвращает новый список тегов или None, если заметки нет."""
+    note = get_note(note_id)
+    if not note:
+        return None
+    target = normalize_tag(tag)
+    tags = [t for t in _parse_tags(note["tags"]) if t != target]
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE notes SET tags = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+            (json.dumps(tags), note_id),
+        )
+    return tags
+
+
+_DATE_FIELDS = {"event_date", "created_at"}
+
+
+def query_notes(date_field: str = None, lo=None, hi=None, limit: int = CONTEXT_NOTE_LIMIT) -> list:
+    """Заметки с опциональным фильтром по дате. date_field ∈ {event_date, created_at}.
+
+    Тег/people-фильтрация делается выше (в retrieval) по Python — объём небольшой.
+    """
+    with db_cursor() as cur:
+        if date_field in _DATE_FIELDS and lo is not None and hi is not None:
+            cur.execute(
+                f"""
+                SELECT id, author_name, text, tags, event_date, event_time, created_at
+                FROM notes
+                WHERE {date_field} BETWEEN %s AND %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (lo, hi, limit),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, author_name, text, tags, event_date, event_time, created_at
+                FROM notes
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+        return [dict(r) for r in cur.fetchall()]

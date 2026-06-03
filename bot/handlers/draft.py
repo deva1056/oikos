@@ -1,12 +1,14 @@
 import asyncio
 import logging
+from datetime import date as _date, time as _time
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 
-from core.ai import ask_claude, classify_and_tag, refine_draft
+from core.ai import ask_claude, extract_note_metadata, refine_draft
 from core.auth import is_allowed
-from core.memory import add_note, get_member_name, get_member_timezone, get_public_context
+from core.memory import add_note, get_all_tags, get_member_name, get_member_timezone, normalize_tag
+from core.retrieval import get_relevant_context
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +77,31 @@ async def _ensure_member(update: Update) -> str:
     return name
 
 
+def _parse_date(s):
+    try:
+        return _date.fromisoformat(s) if s else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_time(s):
+    if not s:
+        return None
+    try:
+        parts = [int(x) for x in str(s).split(":")]
+        return _time(parts[0], parts[1] if len(parts) > 1 else 0)
+    except (ValueError, IndexError):
+        return None
+
+
 async def _answer_question(message, user_id: str, text: str, author_name: str):
     tz = get_member_timezone(user_id)
-    answer = await _run_llm(ask_claude, text, get_public_context(tz), author_name, tz)
+    try:
+        context_text = await asyncio.to_thread(get_relevant_context, text, tz)
+    except Exception as e:  # noqa: BLE001
+        logger.error("retrieval failed: %s", type(e).__name__)
+        context_text = "Заметок пока нет."
+    answer = await _run_llm(ask_claude, text, context_text, author_name, tz)
     if answer is None:
         await message.reply_text(LLM_ERROR)
         return
@@ -213,22 +237,30 @@ async def save_draft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     draft_state = context.user_data["draft"]
     text = draft_state["text"]
-    author_name = draft_state.get("author_name") or get_member_name(str(update.effective_user.id))
+    user_id = str(update.effective_user.id)
+    author_name = draft_state.get("author_name") or get_member_name(user_id)
 
-    tagged = await _run_llm(classify_and_tag, text)
-    tags = tagged.get("tags", ["прочее"]) if tagged else ["прочее"]
+    tz = get_member_timezone(user_id)
+    known_tags = [t for t, _ in get_all_tags()]
+    meta = await _run_llm(extract_note_metadata, text, tz, known_tags) or {}
+    tags = [t for t in (normalize_tag(t) for t in meta.get("tags", [])) if t] or ["прочее"]
+    event_date = _parse_date(meta.get("event_date"))
+    event_time = _parse_time(meta.get("event_time"))
 
     note = add_note(
-        user_id=str(update.effective_user.id),
+        user_id=user_id,
         author_name=author_name,
         text=text,
         tags=tags,
+        event_date=event_date,
+        event_time=event_time,
     )
     context.user_data.pop("draft", None)
     logger.info(f"Заметка #{note['id']} сохранена через диалог")
 
     tags_display = " ".join(f"#{t}" for t in tags)
-    confirmation = f"✅ Сохранено!\n\n{text}\n\n{tags_display}"
+    when = f"\n🗓 {event_date}" + (f" {event_time}" if event_time else "") if event_date else ""
+    confirmation = f"✅ Сохранено!\n\n{text}\n\n{tags_display}{when}"
     await (query.edit_message_text(confirmation) if query else update.message.reply_text(confirmation))
     return ConversationHandler.END
 

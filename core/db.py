@@ -91,6 +91,9 @@ def init_db():
             text TEXT NOT NULL,
             tags TEXT NOT NULL,
 
+            event_date DATE,
+            event_time TIME,
+
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -98,6 +101,10 @@ def init_db():
         )
         """
     )
+
+    # Migration: машинная дата/время события (для вопросов «что завтра»)
+    cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS event_date DATE")
+    cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS event_time TIME")
 
     conn.commit()
     conn.close()
