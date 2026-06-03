@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from bot.handlers.commands import location_keyboard
 from core.auth import is_allowed
-from core.memory import get_member_name, get_member_timezone, register_member
+from core.memory import get_member_name, get_member_timezone, register_member, sanitize_name
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    name = update.message.text.strip()
+    name = sanitize_name(update.message.text)
+    if not name:
+        await update.message.reply_text("Не разобрал имя — напиши его обычным текстом 🙂")
+        return ASKING_NAME
 
     register_member(user_id, name)
     logger.info(f"Зарегистрирован: {name} (id={user_id})")

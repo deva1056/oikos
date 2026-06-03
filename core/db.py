@@ -1,5 +1,9 @@
 import os
+import threading
+from contextlib import contextmanager
+
 import psycopg2
+from psycopg2 import pool as _pgpool
 from psycopg2.extras import RealDictCursor
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -9,8 +13,52 @@ if not DATABASE_URL:
 
 
 def get_connection():
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    """Одиночное соединение (для init/миграций). В хендлерах — db_cursor()."""
+    return psycopg2.connect(DATABASE_URL)
+
+
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool():
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = _pgpool.ThreadedConnectionPool(1, 10, DATABASE_URL)
+    return _pool
+
+
+@contextmanager
+def db_cursor():
+    """Курсор из пула соединений — без накладных расходов на connect на каждый вызов.
+
+    Коммитит при успехе, откатывает при исключении. Битые соединения
+    отбраковываются (по conn.closed на следующем заходе).
+    """
+    pool = _get_pool()
+    conn = pool.getconn()
+    if conn.closed:
+        pool.putconn(conn, close=True)
+        conn = pool.getconn()
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        yield cur
+        conn.commit()
+    except BaseException:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        pool.putconn(conn)
 
 
 def init_db():

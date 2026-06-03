@@ -1,3 +1,4 @@
+import json
 from zoneinfo import ZoneInfo
 
 from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
@@ -5,14 +6,18 @@ from telegram.ext import ContextTypes
 
 from core.auth import is_allowed
 from core.memory import (
+    add_tag_to_note,
     delete_user_notes,
     get_all_members,
+    get_all_tags,
     get_member_name,
     get_member_timezone,
+    get_note,
+    get_notes_by_tag,
     get_user_notes,
     set_member_timezone,
 )
-from core.timeutils import now_prompt_str
+from core.timeutils import format_dt, now_prompt_str
 
 from bot.handlers._send import safe_reply
 
@@ -80,12 +85,96 @@ async def list_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = ["📝 Твои заметки:\n"]
     for note in notes:
-        lines.append(f"• {note['text']}")
+        tags = json.loads(note["tags"]) if note.get("tags") else []
+        tag_str = " ".join(f"#{t}" for t in tags)
+        lines.append(f"#{note['id']} {note['text']}" + (f"\n{tag_str}" if tag_str else ""))
 
     text = "\n\n".join(lines)
     if len(text) > 4000:
         text = text[:4000] + "\n\n(показаны последние записи)"
     await update.message.reply_text(text)
+
+
+async def tags_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not is_allowed(user_id):
+        await update.message.reply_text("⛔ Нет доступа.")
+        return
+    if not get_member_name(user_id):
+        await update.message.reply_text("Сначала напиши /start")
+        return
+
+    tags = get_all_tags()
+    if not tags:
+        await update.message.reply_text("Тегов пока нет.")
+        return
+
+    body = "  ".join(f"#{t} ({c})" for t, c in tags)
+    await update.message.reply_text(
+        f"🏷 Теги семьи:\n\n{body}\n\nЗаметки по тегу: /tag <тег>"
+    )
+
+
+async def tag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not is_allowed(user_id):
+        await update.message.reply_text("⛔ Нет доступа.")
+        return
+    if not get_member_name(user_id):
+        await update.message.reply_text("Сначала напиши /start")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Укажи тег: /tag планы")
+        return
+
+    tag = context.args[0].lstrip("#")
+    notes = get_notes_by_tag(tag)
+    if not notes:
+        await update.message.reply_text(f"Заметок с #{tag} нет.")
+        return
+
+    tz = get_member_timezone(user_id)
+    lines = [f"🏷 Заметки с #{tag}:\n"]
+    for n in notes:
+        lines.append(f"#{n['id']} [{format_dt(n['created_at'], tz)}] {n['author_name']}: {n['text']}")
+    text = "\n\n".join(lines)
+    if len(text) > 4000:
+        text = text[:4000] + "\n\n(показаны последние записи)"
+    await update.message.reply_text(text)
+
+
+async def addtag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not is_allowed(user_id):
+        await update.message.reply_text("⛔ Нет доступа.")
+        return
+    if not get_member_name(user_id):
+        await update.message.reply_text("Сначала напиши /start")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Формат: /addtag <id> <тег>\nID заметки видно в /notes")
+        return
+
+    try:
+        note_id = int(context.args[0].lstrip("#"))
+    except ValueError:
+        await update.message.reply_text("ID должен быть числом. Формат: /addtag <id> <тег>")
+        return
+
+    note = get_note(note_id)
+    if not note:
+        await update.message.reply_text(f"Заметка #{note_id} не найдена.")
+        return
+    if note["author_id"] != user_id:
+        await update.message.reply_text("Добавлять теги можно только к своим заметкам.")
+        return
+
+    tag = context.args[1].lstrip("#")
+    tags = add_tag_to_note(note_id, tag)
+    tag_str = " ".join(f"#{t}" for t in tags)
+    await update.message.reply_text(f"✅ Тег #{tag} добавлен к заметке #{note_id}.\nТеги: {tag_str}")
 
 
 async def members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -133,6 +222,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/note <текст> — начать заметку\n"
         "/ask <вопрос> — спросить память\n"
         "/notes — все твои заметки\n"
+        "/tags — все теги семьи\n"
+        "/tag <тег> — заметки с этим тегом\n"
+        "/addtag <id> <тег> — добавить тег к заметке\n"
         "/members — кто в боте\n"
         "/timezone — задать таймзону (для «сегодня/вчера»)\n"
         "/clear — удалить все свои заметки\n"

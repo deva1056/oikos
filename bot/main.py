@@ -14,10 +14,13 @@ from telegram.ext import (
 load_dotenv()
 
 from bot.handlers.commands import (
+    addtag_command,
     clear_my_notes,
     help_command,
     list_notes,
     members,
+    tag_command,
+    tags_command,
     timezone_command,
 )
 from bot.handlers.draft import (
@@ -83,6 +86,9 @@ def main():
 
     app.add_handler(start_conv)
     app.add_handler(CommandHandler("notes", list_notes))
+    app.add_handler(CommandHandler("tags", tags_command))
+    app.add_handler(CommandHandler("tag", tag_command))
+    app.add_handler(CommandHandler("addtag", addtag_command))
     app.add_handler(CommandHandler("members", members))
     app.add_handler(CommandHandler("timezone", timezone_command))
     app.add_handler(CommandHandler("clear", clear_my_notes))
