@@ -141,7 +141,8 @@ def extract_note_metadata(text: str, tz_name: str = None, known_tags: list = Non
     }
 
 
-def extract_search_profile(question: str, tz_name: str = None, known_tags: list = None) -> dict:
+def extract_search_profile(question: str, tz_name: str = None, known_tags: list = None,
+                           history: list = None) -> dict:
     """Профиль поиска по вопросу: какие теги/люди/период искать. Даты-намерение, не арифметика."""
     known = ", ".join(known_tags or []) or "(пока нет)"
     system = f"""Ты строишь профиль поиска по семейной памяти из вопроса (НЕ отвечаешь на него).
@@ -165,8 +166,17 @@ def extract_search_profile(question: str, tz_name: str = None, known_tags: list 
 - people vs authors: «что у Вари», «про Борю» → people; «заметки от Тани», «что писал Андрей» → authors.
 - period — для относительных дат; конкретные границы посчитает программа, ТЫ даты не вычисляешь.
 - date_field: "event" для вопросов о событиях/расписании («что завтра», «когда»), "created" для «что записал вчера». null — если про даты речи нет.
+- Учитывай недавний диалог: уточнения («а во сколько?», «а у Бори?») трактуй в его контексте.
 - Пусто — оставляй [] или null. Только JSON, без пояснений."""
-    data = _parse_json(_complete(system, question, max_tokens=600, json_mode=False))
+    if history:
+        convo = "\n".join(
+            f"{'Вопрос' if m['role'] == 'user' else 'Ответ'}: {m['content']}"
+            for m in history[-4:]
+        )
+        user_content = f"Недавний диалог:\n{convo}\n\nТекущий вопрос: {question}"
+    else:
+        user_content = question
+    data = _parse_json(_complete(system, user_content, max_tokens=600, json_mode=False))
     return {
         "tags_any": data.get("tags_any") if isinstance(data.get("tags_any"), list) else [],
         "tags_all": data.get("tags_all") if isinstance(data.get("tags_all"), list) else [],
@@ -179,8 +189,9 @@ def extract_search_profile(question: str, tz_name: str = None, known_tags: list 
     }
 
 
-def ask_claude(question: str, public_context: str, asker_name: str, tz_name: str = None) -> str:
-    """Answer question based on ONLY public context. (Имя историческое — провайдер задаётся LLM_PROVIDER.)"""
+def ask_claude(question: str, public_context: str, asker_name: str, tz_name: str = None,
+               history: list = None) -> str:
+    """Ответ по памяти семьи с учётом недавнего диалога (follow-up вопросы)."""
     current = now_prompt_str(tz_name)
     system = f"""Ты Робо — семейный AI-ассистент. Тебя спрашивает {asker_name}.
 
@@ -196,4 +207,5 @@ def ask_claude(question: str, public_context: str, asker_name: str, tz_name: str
 === ПАМЯТЬ СЕМЬИ ===
 {public_context}
 ===================="""
-    return _complete(system, question, max_tokens=1000)
+    messages = list(history or []) + [{"role": "user", "content": question}]
+    return _chat(system, messages, max_tokens=1000)

@@ -2,12 +2,14 @@ import logging
 import os
 
 from dotenv import load_dotenv
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
     CommandHandler,
     ConversationHandler,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -38,6 +40,7 @@ from bot.handlers.draft import (
     save_draft,
 )
 from bot.handlers.location import handle_location
+from bot.handlers.session import touch_session
 from bot.handlers.start import ASKING_NAME, receive_name, start
 from core.auth import ALLOWED_IDS
 from core.db import init_db
@@ -87,6 +90,9 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel_draft)],
     )
+
+    # group -1: продление/протухание сессии по простою (TTL) — до всех остальных
+    app.add_handler(TypeHandler(Update, touch_session), group=-1)
 
     app.add_handler(start_conv)
     app.add_handler(CommandHandler("notes", list_notes))

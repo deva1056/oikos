@@ -41,14 +41,15 @@ def _resolve_dates(profile: dict, tz_name: str):
     return field, lo, hi
 
 
-def get_relevant_context(question: str, viewer_tz: str = None) -> str:
+def get_relevant_context(question: str, viewer_tz: str = None, history: list = None) -> str:
     """Вопрос → профиль поиска → срез заметок по дате/тегам/людям → текст для LLM.
 
+    history (недавний диалог) помогает профайлеру разрешать уточнения.
     Сам по себе устойчив: при сбое профайлера откатывается на последние заметки.
     """
     known = [t for t, _ in get_all_tags()]
     try:
-        profile = extract_search_profile(question, viewer_tz, known)
+        profile = extract_search_profile(question, viewer_tz, known, history)
     except Exception as e:  # noqa: BLE001
         logger.error("search profile failed: %s", type(e).__name__)
         profile = {}

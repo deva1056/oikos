@@ -19,6 +19,8 @@ from core.memory import (
 )
 from core.retrieval import get_relevant_context
 
+from bot.handlers.session import get_turns, remember_turn
+
 logger = logging.getLogger(__name__)
 
 DRAFTING = 1
@@ -109,17 +111,19 @@ def _parse_time(s):
         return None
 
 
-async def _answer_question(message, user_id: str, text: str, author_name: str):
+async def _answer_question(message, user_id: str, text: str, author_name: str, context):
     tz = get_member_timezone(user_id)
+    history = get_turns(context)
     try:
-        context_text = await asyncio.to_thread(get_relevant_context, text, tz)
+        context_text = await asyncio.to_thread(get_relevant_context, text, tz, history)
     except Exception as e:  # noqa: BLE001
         logger.error("retrieval failed: %s", type(e).__name__)
         context_text = "Заметок пока нет."
-    answer = await _run_llm(ask_claude, text, context_text, author_name, tz)
+    answer = await _run_llm(ask_claude, text, context_text, author_name, tz, history)
     if answer is None:
         await message.reply_text(LLM_ERROR)
         return
+    remember_turn(context, text, answer)
     keyboard = InlineKeyboardMarkup(
         [[InlineKeyboardButton("✍️ Я хотел записать это", callback_data="draft_from_q")]]
     )
@@ -158,7 +162,7 @@ async def route_first_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if looks_like_question(text):
         context.user_data["last_question"] = text
-        await _answer_question(update.message, user_id, text, author_name)
+        await _answer_question(update.message, user_id, text, author_name, context)
         return ConversationHandler.END
 
     ok = await _begin_draft(
@@ -195,7 +199,7 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     context.user_data["last_question"] = text
-    await _answer_question(update.message, str(update.effective_user.id), text, author_name)
+    await _answer_question(update.message, str(update.effective_user.id), text, author_name, context)
     return ConversationHandler.END
 
 
@@ -341,5 +345,5 @@ async def draft_was_question(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = str(update.effective_user.id)
     author_name = draft_state.get("author_name") or get_member_name(user_id)
     context.user_data["last_question"] = seed
-    await _answer_question(query.message, user_id, seed, author_name)
+    await _answer_question(query.message, user_id, seed, author_name, context)
     return ConversationHandler.END
