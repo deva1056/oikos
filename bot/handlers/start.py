@@ -3,8 +3,9 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
+from bot.handlers.commands import location_keyboard
 from core.auth import is_allowed
-from core.memory import get_member_name, register_member
+from core.memory import get_member_name, get_member_timezone, register_member
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• «Какие кафе мы хотели посетить?»\n"
             "• «Что хочет дочка на день рождения?»"
         )
+        if not get_member_timezone(user_id):
+            await update.message.reply_text(
+                "🌍 И ещё: чтобы я правильно понимал «сегодня» и «вчера», "
+                "отправь геолокацию — определю твою таймзону.\n"
+                "(или задай вручную: /timezone)",
+                reply_markup=location_keyboard(),
+            )
         return ConversationHandler.END
 
     await update.message.reply_text("👋 Привет! Я Робо — семейный помощник.\n\nКак тебя зовут?")
@@ -48,6 +56,9 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"Отлично, {name}! 🎉 Теперь ты в семейном боте.\n\n"
-        "Просто пиши мне заметки или вопросы в свободной форме."
+        "🌍 Последний штрих: отправь геолокацию, чтобы я правильно понимал "
+        "«сегодня» и «вчера» в твоей таймзоне.\n"
+        "(можно пропустить и задать позже через /timezone)",
+        reply_markup=location_keyboard(),
     )
     return ConversationHandler.END

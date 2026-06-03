@@ -1,6 +1,7 @@
 import json
 from psycopg2.extras import RealDictCursor
 from core.db import get_connection
+from core.timeutils import format_dt
 
 
 def get_member_name(user_id) -> str:
@@ -19,6 +20,28 @@ def register_member(user_id, name: str):
     cursor.execute(
         "INSERT INTO members (telegram_id, name) VALUES (%s, %s) ON CONFLICT (telegram_id) DO UPDATE SET name = %s",
         (str(user_id), name, name),
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def get_member_timezone(user_id) -> str:
+    conn = get_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT timezone FROM members WHERE telegram_id = %s", (str(user_id),))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return row["timezone"] if row else None
+
+
+def set_member_timezone(user_id, tz: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE members SET timezone = %s WHERE telegram_id = %s",
+        (tz, str(user_id)),
     )
     conn.commit()
     cursor.close()
@@ -90,13 +113,17 @@ def delete_user_notes(user_id):
     conn.close()
 
 
-def get_public_context() -> str:
-    """Get only public notes (interpretation + public) for Claude."""
+def get_public_context(viewer_tz: str = None) -> str:
+    """Get only public notes (interpretation + public) for Claude.
+
+    Timestamps are rendered in the asking member's timezone so that
+    "today"/"yesterday" line up with how they experience the day.
+    """
     conn = get_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute(
         """
-        SELECT author_name, public_interpretation, public_text, visibility
+        SELECT author_name, public_interpretation, public_text, visibility, created_at
         FROM notes
         WHERE visibility IN ('interpretation', 'public')
         ORDER BY created_at ASC
@@ -112,9 +139,13 @@ def get_public_context() -> str:
     lines = []
     for note in notes:
         if note["visibility"] == "interpretation" and note["public_interpretation"]:
-            lines.append(f"{note['author_name']}: {note['public_interpretation']}")
+            content = note["public_interpretation"]
         elif note["visibility"] == "public" and note["public_text"]:
-            lines.append(f"{note['author_name']}: {note['public_text']}")
+            content = note["public_text"]
+        else:
+            continue
+        ts = format_dt(note["created_at"], viewer_tz)
+        lines.append(f"[{ts}] {note['author_name']}: {content}")
 
     return "\n".join(lines) if lines else "Заметок пока нет."
 

@@ -28,6 +28,9 @@ def init_db():
         """
     )
 
+    # Migration: per-member timezone (added later, so guard with IF NOT EXISTS)
+    cursor.execute("ALTER TABLE members ADD COLUMN IF NOT EXISTS timezone TEXT")
+
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS notes (
