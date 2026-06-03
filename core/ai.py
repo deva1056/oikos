@@ -129,7 +129,7 @@ def extract_note_metadata(text: str, tz_name: str = None, known_tags: list = Non
 - event_date/event_time: если в тексте есть дата/время события (завтра, в пятницу, 5-го, в 10:00) — разреши их в абсолютные относительно «сейчас». Нет даты события — null.
 
 Только JSON, без пояснений."""
-    data = _parse_json(_complete(system, text, max_tokens=300, json_mode=True))
+    data = _parse_json(_complete(system, text, max_tokens=800, json_mode=False))
     return {
         "tags": data.get("tags") if isinstance(data.get("tags"), list) else [],
         "event_date": data.get("event_date") or None,
@@ -160,7 +160,7 @@ def extract_search_profile(question: str, tz_name: str = None, known_tags: list 
 - period — для относительных дат; конкретные границы посчитает программа, ТЫ даты не вычисляешь.
 - date_field: "event" для вопросов о событиях/расписании («что завтра», «когда»), "created" для «что записал вчера». null — если про даты речи нет.
 - Пусто — оставляй [] или null. Только JSON, без пояснений."""
-    data = _parse_json(_complete(system, question, max_tokens=250, json_mode=True))
+    data = _parse_json(_complete(system, question, max_tokens=600, json_mode=False))
     return {
         "tags_any": data.get("tags_any") if isinstance(data.get("tags_any"), list) else [],
         "tags_all": data.get("tags_all") if isinstance(data.get("tags_all"), list) else [],
