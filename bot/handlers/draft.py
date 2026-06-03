@@ -23,13 +23,19 @@ _QUESTION_WORDS = {
     "какой", "какая", "какие", "какое", "чей", "куда", "откуда",
 }
 
+# императивы-запросы: «покажи/выведи заметки …» — это поиск, не заметка
+_COMMAND_WORDS = {
+    "покажи", "покажите", "выведи", "выведите", "найди", "найдите",
+    "перечисли", "перечислите", "скинь", "дай", "список", "ищи", "поищи",
+}
+
 
 def looks_like_question(text: str) -> bool:
     t = text.strip().lower()
     if t.endswith("?"):
         return True
     words = t.split()
-    return bool(words) and words[0] in _QUESTION_WORDS
+    return bool(words) and words[0] in (_QUESTION_WORDS | _COMMAND_WORDS)
 
 
 async def _run_llm(fn, *args):

@@ -149,7 +149,8 @@ def extract_search_profile(question: str, tz_name: str = None, known_tags: list 
 {{
   "tags_any": ["topic:..."],   // темы, любая из которых релевантна
   "tags_all": ["type:..."],    // теги, которые должны быть все
-  "people": ["имя"],           // люди/питомцы из вопроса, нижний регистр
+  "people": ["имя"],           // про КОГО заметка (упомянут в тексте), нижний регистр
+  "authors": ["имя"],          // от КОГО заметка / кто её писал, нижний регистр
   "period": "today|tomorrow|yesterday|this_week|next_week|last_week|this_month" или null,
   "date_from": "ГГГГ-ММ-ДД" или null,  // ТОЛЬКО для нестандартного периода (напр. «в мае»)
   "date_to": "ГГГГ-ММ-ДД" или null,
@@ -157,6 +158,7 @@ def extract_search_profile(question: str, tz_name: str = None, known_tags: list 
 }}
 
 Правила:
+- people vs authors: «что у Вари», «про Борю» → people; «заметки от Тани», «что писал Андрей» → authors.
 - period — для относительных дат; конкретные границы посчитает программа, ТЫ даты не вычисляешь.
 - date_field: "event" для вопросов о событиях/расписании («что завтра», «когда»), "created" для «что записал вчера». null — если про даты речи нет.
 - Пусто — оставляй [] или null. Только JSON, без пояснений."""
@@ -165,6 +167,7 @@ def extract_search_profile(question: str, tz_name: str = None, known_tags: list 
         "tags_any": data.get("tags_any") if isinstance(data.get("tags_any"), list) else [],
         "tags_all": data.get("tags_all") if isinstance(data.get("tags_all"), list) else [],
         "people": data.get("people") if isinstance(data.get("people"), list) else [],
+        "authors": data.get("authors") if isinstance(data.get("authors"), list) else [],
         "period": data.get("period") or None,
         "date_from": data.get("date_from") or None,
         "date_to": data.get("date_to") or None,

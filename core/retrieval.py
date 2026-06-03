@@ -58,6 +58,7 @@ def get_relevant_context(question: str, viewer_tz: str = None) -> str:
     required = [normalize_tag(t) for t in profile.get("tags_all", [])]
     required += [normalize_tag(f"person:{p}") for p in profile.get("people", [])]
     any_tags = [normalize_tag(t) for t in profile.get("tags_any", [])]
+    authors = [a.strip().lower() for a in profile.get("authors", []) if a.strip()]
 
     def matches(row) -> bool:
         tags = _parse_tags(row["tags"])
@@ -65,9 +66,13 @@ def get_relevant_context(question: str, viewer_tz: str = None) -> str:
             return False
         if any_tags and not any(t in tags for t in any_tags):
             return False
+        if authors:
+            an = (row["author_name"] or "").lower()
+            if not any(a in an or an in a for a in authors):
+                return False
         return True
 
-    has_filters = bool(field or required or any_tags)
+    has_filters = bool(field or required or any_tags or authors)
     if has_filters:
         rows = [r for r in rows if matches(r)]
 
