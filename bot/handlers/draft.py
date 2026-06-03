@@ -6,7 +6,7 @@ from datetime import date as _date, time as _time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 
-from core.ai import ask_claude, edit_text, extract_note_metadata, refine_draft
+from core.ai import ask_claude, edit_text, extract_note_metadata
 from core.auth import is_allowed
 from core.memory import (
     add_note,
@@ -131,21 +131,17 @@ async def _answer_question(message, user_id: str, text: str, author_name: str, c
 
 
 async def _begin_draft(message, chat_id, context, seed_text, author_name, owner_id) -> bool:
-    """Сгенерировать первый черновик и положить состояние. False — если LLM не ответил."""
-    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-    messages = [{"role": "user", "content": seed_text}]
-    draft = await _run_llm(refine_draft, messages)
-    if draft is None:
-        await message.reply_text(LLM_ERROR)
-        return False
-    messages.append({"role": "assistant", "content": draft})
+    """Первый черновик = текст пользователя ДОСЛОВНО (ИИ не переписывает).
+
+    Изменения вносятся только явными правками в диалоге (edit_text).
+    """
     context.user_data["draft"] = {
-        "messages": messages,
-        "text": draft,
+        "text": seed_text,
+        "seed": seed_text,
         "author_name": author_name,
         "owner_id": owner_id,
     }
-    await message.reply_text(_draft_message(draft), reply_markup=_draft_keyboard())
+    await message.reply_text(_draft_message(seed_text), reply_markup=_draft_keyboard())
     return True
 
 
@@ -237,8 +233,8 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
 
     context.user_data["draft"] = {
-        "messages": [{"role": "assistant", "content": note["text"]}],
         "text": note["text"],
+        "seed": note["text"],
         "author_name": author_name,
         "owner_id": update.effective_user.id,
         "editing_id": note_id,
@@ -261,23 +257,13 @@ async def refine_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     instruction = update.message.text.strip()
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    if draft_state.get("editing_id"):
-        # редактирование: точечная правка, оригинал сохраняем дословно
-        draft = await _run_llm(edit_text, draft_state["text"], instruction)
-        if draft is None:
-            await update.message.reply_text(LLM_ERROR)
-            return DRAFTING
-        draft_state["text"] = draft
-    else:
-        # создание: собираем формулировку из диалога
-        draft_state["messages"].append({"role": "user", "content": instruction})
-        draft = await _run_llm(refine_draft, draft_state["messages"])
-        if draft is None:
-            draft_state["messages"].pop()  # откатываем неудавшуюся реплику
-            await update.message.reply_text(LLM_ERROR)
-            return DRAFTING
-        draft_state["messages"].append({"role": "assistant", "content": draft})
-        draft_state["text"] = draft
+    # и при создании, и при редактировании — точечная правка поверх текущего
+    # текста, дословно сохраняя остальное (ИИ ничего не переписывает сам)
+    draft = await _run_llm(edit_text, draft_state["text"], instruction)
+    if draft is None:
+        await update.message.reply_text(LLM_ERROR)
+        return DRAFTING
+    draft_state["text"] = draft
 
     await update.message.reply_text(_draft_message(draft), reply_markup=_draft_keyboard())
     return DRAFTING
@@ -353,7 +339,7 @@ async def draft_was_question(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     draft_state = context.user_data.pop("draft")
-    seed = draft_state["messages"][0]["content"]
+    seed = draft_state.get("seed") or draft_state["text"]
     user_id = str(update.effective_user.id)
     author_name = draft_state.get("author_name") or get_member_name(user_id)
     context.user_data["last_question"] = seed
