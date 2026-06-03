@@ -248,7 +248,7 @@ async def save_draft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     tz = get_member_timezone(user_id)
     known_tags = [t for t, _ in get_all_tags()]
-    meta = await _run_llm(extract_note_metadata, text, tz, known_tags) or {}
+    meta = await _run_llm(extract_note_metadata, text, tz, known_tags, author_name) or {}
     tags = [t for t in (normalize_tag(t) for t in meta.get("tags", [])) if t] or ["прочее"]
     event_date = _parse_date(meta.get("event_date"))
     event_time = _parse_time(meta.get("event_time"))

@@ -43,14 +43,14 @@ def main():
     cur.execute("SELECT tags FROM notes")
     known = sorted({t for r in cur.fetchall() for t in _parse_tags(r["tags"])})
 
-    cur.execute("SELECT id, text, tags FROM notes ORDER BY id")
+    cur.execute("SELECT id, text, tags, author_name FROM notes ORDER BY id")
     rows = cur.fetchall()
     targets = [r for r in rows if ALL or "прочее" in _parse_tags(r["tags"])]
     print(f"К перетегированию: {len(targets)}\n")
 
     changed = 0
     for r in targets:
-        meta = extract_note_metadata(r["text"], None, known)
+        meta = extract_note_metadata(r["text"], None, known, r["author_name"])
         new = [t for t in (normalize_tag(x) for x in meta.get("tags", [])) if t]
         old = _parse_tags(r["tags"])
         if not new:
