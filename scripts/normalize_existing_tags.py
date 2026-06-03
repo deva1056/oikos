@@ -17,6 +17,9 @@ import sys
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+# чтобы скрипт можно было запускать как `python scripts/...` из корня репо
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from core.memory import _parse_tags, normalize_tag
 
 DATABASE_URL = os.getenv("DATABASE_URL")
