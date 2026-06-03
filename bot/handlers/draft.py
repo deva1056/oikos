@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from datetime import date as _date, time as _time
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -7,7 +8,15 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from core.ai import ask_claude, extract_note_metadata, refine_draft
 from core.auth import is_allowed
-from core.memory import add_note, get_all_tags, get_member_name, get_member_timezone, normalize_tag
+from core.memory import (
+    add_note,
+    get_all_tags,
+    get_member_name,
+    get_member_timezone,
+    get_note,
+    normalize_tag,
+    update_note,
+)
 from core.retrieval import get_relevant_context
 
 logger = logging.getLogger(__name__)
@@ -207,6 +216,36 @@ async def draft_from_question(update: Update, context: ContextTypes.DEFAULT_TYPE
     return DRAFTING if ok else ConversationHandler.END
 
 
+async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """/edit_<id> — открыть заметку как черновик и править её в том же диалоге."""
+    author_name = await _ensure_member(update)
+    if not author_name:
+        return ConversationHandler.END
+
+    m = re.match(r"^/edit_(\d+)", update.message.text.strip())
+    if not m:
+        return ConversationHandler.END
+    note_id = int(m.group(1))
+
+    note = get_note(note_id)
+    if not note or note["author_id"] != str(update.effective_user.id):
+        await update.message.reply_text("Это не твоя заметка или её нет.")
+        return ConversationHandler.END
+
+    context.user_data["draft"] = {
+        "messages": [{"role": "assistant", "content": note["text"]}],
+        "text": note["text"],
+        "author_name": author_name,
+        "owner_id": update.effective_user.id,
+        "editing_id": note_id,
+    }
+    await update.message.reply_text(
+        f"✏️ Редактируем заметку #{note_id}:\n\n{note['text']}\n\nНапиши правки словами или сохрани.",
+        reply_markup=_draft_keyboard(),
+    )
+    return DRAFTING
+
+
 # ---------- DRAFTING state ----------
 
 async def refine_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -253,20 +292,27 @@ async def save_draft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     event_date = _parse_date(meta.get("event_date"))
     event_time = _parse_time(meta.get("event_time"))
 
-    note = add_note(
-        user_id=user_id,
-        author_name=author_name,
-        text=text,
-        tags=tags,
-        event_date=event_date,
-        event_time=event_time,
-    )
+    editing_id = draft_state.get("editing_id")
+    if editing_id:
+        update_note(editing_id, user_id, text, tags, event_date, event_time)
+        logger.info("Заметка #%s обновлена через диалог", editing_id)
+        head = f"✏️ Обновлено #{editing_id}!"
+    else:
+        note = add_note(
+            user_id=user_id,
+            author_name=author_name,
+            text=text,
+            tags=tags,
+            event_date=event_date,
+            event_time=event_time,
+        )
+        logger.info(f"Заметка #{note['id']} сохранена через диалог")
+        head = "✅ Сохранено!"
     context.user_data.pop("draft", None)
-    logger.info(f"Заметка #{note['id']} сохранена через диалог")
 
     tags_display = " ".join(f"#{t}" for t in tags)
     when = f"\n🗓 {event_date}" + (f" {event_time}" if event_time else "") if event_date else ""
-    confirmation = f"✅ Сохранено!\n\n{text}\n\n{tags_display}{when}"
+    confirmation = f"{head}\n\n{text}\n\n{tags_display}{when}"
     await (query.edit_message_text(confirmation) if query else update.message.reply_text(confirmation))
     return ConversationHandler.END
 

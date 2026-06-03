@@ -95,6 +95,31 @@ def add_note(user_id, author_name: str, text: str, tags: list,
         return dict(cur.fetchone())
 
 
+def update_note(note_id: int, author_id, text: str, tags: list,
+                event_date=None, event_time=None) -> int:
+    """Обновить свою заметку (текст + метаданные). Возвращает число изменённых строк."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE notes
+            SET text = %s, tags = %s, event_date = %s, event_time = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND author_id = %s
+            """,
+            (text, json.dumps(tags), event_date, event_time, note_id, str(author_id)),
+        )
+        return cur.rowcount
+
+
+def set_note_tags(note_id: int, tags: list):
+    """Заменить теги заметки целиком (для /retag)."""
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE notes SET tags = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+            (json.dumps(tags), note_id),
+        )
+
+
 def get_note(note_id: int) -> dict:
     with db_cursor() as cur:
         cur.execute("SELECT * FROM notes WHERE id = %s", (note_id,))

@@ -19,6 +19,7 @@ from bot.handlers.commands import (
     help_command,
     list_notes,
     members,
+    retag_command,
     rmtag_command,
     tag_command,
     tags_command,
@@ -30,6 +31,7 @@ from bot.handlers.draft import (
     cancel_draft,
     draft_from_question,
     draft_was_question,
+    edit_command,
     note_command,
     refine_message,
     route_first_message,
@@ -69,6 +71,7 @@ def main():
         entry_points=[
             CommandHandler("note", note_command),
             CommandHandler("ask", ask_command),
+            MessageHandler(filters.Regex(r"^/edit_\d+"), edit_command),
             CallbackQueryHandler(draft_from_question, pattern=r"^draft_from_q$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, route_first_message),
         ],
@@ -91,6 +94,7 @@ def main():
     app.add_handler(CommandHandler("tag", tag_command))
     app.add_handler(CommandHandler("addtag", addtag_command))
     app.add_handler(CommandHandler("rmtag", rmtag_command))
+    app.add_handler(CommandHandler("retag", retag_command))
     app.add_handler(CommandHandler("members", members))
     app.add_handler(CommandHandler("timezone", timezone_command))
     app.add_handler(CommandHandler("clear", clear_my_notes))

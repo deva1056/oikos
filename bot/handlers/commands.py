@@ -1,9 +1,11 @@
+import asyncio
 import json
 from zoneinfo import ZoneInfo
 
 from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from core.ai import extract_note_metadata
 from core.auth import is_allowed
 from core.memory import (
     add_tag_to_note,
@@ -18,6 +20,7 @@ from core.memory import (
     normalize_tag,
     remove_tag_from_note,
     set_member_timezone,
+    set_note_tags,
 )
 from core.timeutils import format_dt, now_prompt_str
 
@@ -92,7 +95,11 @@ async def list_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         when = ""
         if note.get("event_date"):
             when = f"\n🗓 {note['event_date']}" + (f" {note['event_time']}" if note.get("event_time") else "")
-        lines.append(f"#{note['id']} {note['text']}{when}" + (f"\n{tag_str}" if tag_str else ""))
+        lines.append(
+            f"#{note['id']} {note['text']}{when}"
+            + (f"\n{tag_str}" if tag_str else "")
+            + f"\n/edit_{note['id']}"
+        )
 
     text = "\n\n".join(lines)
     if len(text) > 4000:
@@ -214,6 +221,48 @@ async def rmtag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🗑 Убрал #{tag}. Теги заметки #{note_id}: {tag_str}")
 
 
+async def retag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Перетегировать заметку заново через LLM (меняет только теги, не event_date)."""
+    user_id = str(update.effective_user.id)
+    if not is_allowed(user_id):
+        await update.message.reply_text("⛔ Нет доступа.")
+        return
+    if not get_member_name(user_id):
+        await update.message.reply_text("Сначала напиши /start")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Формат: /retag <id>\nID заметки видно в /notes")
+        return
+    try:
+        note_id = int(context.args[0].lstrip("#"))
+    except ValueError:
+        await update.message.reply_text("ID должен быть числом. Формат: /retag <id>")
+        return
+
+    note = get_note(note_id)
+    if not note:
+        await update.message.reply_text(f"Заметка #{note_id} не найдена.")
+        return
+    if note["author_id"] != user_id:
+        await update.message.reply_text("Перетегировать можно только свои заметки.")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    known = [t for t, _ in get_all_tags()]
+    meta = await asyncio.to_thread(
+        extract_note_metadata, note["text"], get_member_timezone(user_id), known, note["author_name"]
+    )
+    tags = [t for t in (normalize_tag(t) for t in meta.get("tags", [])) if t]
+    if not tags:
+        await update.message.reply_text("Не удалось переосмыслить теги, попробуй ещё раз.")
+        return
+
+    set_note_tags(note_id, tags)
+    tag_str = " ".join(f"#{t}" for t in tags)
+    await update.message.reply_text(f"🏷 Перетегировано #{note_id}: {tag_str}")
+
+
 async def members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
 
@@ -263,6 +312,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/tag <тег> — заметки с этим тегом\n"
         "/addtag <id> <тег...> — добавить тег(и) к заметке\n"
         "/rmtag <id> <тег> — убрать тег\n"
+        "/retag <id> — переосмыслить теги заметки\n"
+        "/edit_<id> — редактировать заметку в диалоге\n"
         "/members — кто в боте\n"
         "/timezone — задать таймзону (для «сегодня/вчера»)\n"
         "/clear — удалить все свои заметки\n"
