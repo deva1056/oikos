@@ -17,7 +17,10 @@ load_dotenv()
 
 from bot.handlers.commands import (
     addtag_command,
+    cancelwish_command,
     clear_my_notes,
+    done_command,
+    fulfilled_command,
     help_command,
     list_notes,
     members,
@@ -26,6 +29,8 @@ from bot.handlers.commands import (
     tag_command,
     tags_command,
     timezone_command,
+    wish_done_callback,
+    wishes_command,
 )
 from bot.handlers.draft import (
     DRAFTING,
@@ -101,6 +106,11 @@ def main():
     app.add_handler(CommandHandler("addtag", addtag_command))
     app.add_handler(CommandHandler("rmtag", rmtag_command))
     app.add_handler(CommandHandler("retag", retag_command))
+    app.add_handler(CommandHandler("wishes", wishes_command))
+    app.add_handler(CommandHandler("fulfilled", fulfilled_command))
+    app.add_handler(CommandHandler("done", done_command))
+    app.add_handler(CommandHandler("cancelwish", cancelwish_command))
+    app.add_handler(CallbackQueryHandler(wish_done_callback, pattern=r"^wishdone_\d+$"))
     app.add_handler(CommandHandler("members", members))
     app.add_handler(CommandHandler("timezone", timezone_command))
     app.add_handler(CommandHandler("clear", clear_my_notes))

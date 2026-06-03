@@ -121,12 +121,14 @@ def extract_note_metadata(text: str, tz_name: str = None, known_tags: list = Non
 Верни JSON:
 {{
   "tags": ["topic:...", "person:...", "type:..."],
+  "note_type": "wish" или "note",
   "event_date": "ГГГГ-ММ-ДД" или null,
   "event_time": "ЧЧ:ММ" или null
 }}
 
-Правила тегов:
-- namespace обязателен: topic: (тема), person: (человек/питомец, имя в нижнем регистре), type: (тип: событие/покупка/идея/факт).
+Правила:
+- note_type="wish", если заметка выражает ЖЕЛАНИЕ кого-то (хочет, мечтает, хотел бы, просит). Фиксация факта/события/покупки = "note". Отрицание («не хочет») — НЕ wish.
+- namespace тега обязателен: topic: (тема), person: (человек/питомец, имя в нижнем регистре), type: (тип: событие/покупка/идея/факт/желание).
 - Если заметка от первого лица (я, мне, мой/моя/моё, у меня) — она про автора: добавь person:{author} (имя в нижнем регистре).
 - 2-5 тегов, по-русски, без пробелов (используй _).
 - НЕ создавай теги вида time: — для дат есть отдельные поля.
@@ -136,6 +138,7 @@ def extract_note_metadata(text: str, tz_name: str = None, known_tags: list = Non
     data = _parse_json(_complete(system, text, max_tokens=800, json_mode=False))
     return {
         "tags": data.get("tags") if isinstance(data.get("tags"), list) else [],
+        "note_type": "wish" if data.get("note_type") == "wish" else "note",
         "event_date": data.get("event_date") or None,
         "event_time": data.get("event_time") or None,
     }
@@ -156,6 +159,7 @@ def extract_search_profile(question: str, tz_name: str = None, known_tags: list 
   "tags_all": ["type:..."],    // теги, которые должны быть все
   "people": ["имя"],           // про КОГО заметка (упомянут в тексте), нижний регистр
   "authors": ["имя"],          // от КОГО заметка / кто её писал, нижний регистр
+  "note_type": "wish" или null,
   "period": "today|tomorrow|yesterday|this_week|next_week|last_week|this_month" или null,
   "date_from": "ГГГГ-ММ-ДД" или null,  // ТОЛЬКО для нестандартного периода (напр. «в мае»)
   "date_to": "ГГГГ-ММ-ДД" или null,
@@ -163,6 +167,7 @@ def extract_search_profile(question: str, tz_name: str = None, known_tags: list 
 }}
 
 Правила:
+- note_type="wish" для вопросов о желаниях/хотелках («что хочет X», «какие желания у Y», «о чём мечтает»). Иначе null.
 - people vs authors: «что у Вари», «про Борю» → people; «заметки от Тани», «что писал Андрей» → authors.
 - period — для относительных дат; конкретные границы посчитает программа, ТЫ даты не вычисляешь.
 - date_field: "event" для вопросов о событиях/расписании («что завтра», «когда»), "created" для «что записал вчера». null — если про даты речи нет.
@@ -182,6 +187,7 @@ def extract_search_profile(question: str, tz_name: str = None, known_tags: list 
         "tags_all": data.get("tags_all") if isinstance(data.get("tags_all"), list) else [],
         "people": data.get("people") if isinstance(data.get("people"), list) else [],
         "authors": data.get("authors") if isinstance(data.get("authors"), list) else [],
+        "note_type": "wish" if data.get("note_type") == "wish" else None,
         "period": data.get("period") or None,
         "date_from": data.get("date_from") or None,
         "date_to": data.get("date_to") or None,

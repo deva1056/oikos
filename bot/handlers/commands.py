@@ -2,7 +2,13 @@ import asyncio
 import json
 from zoneinfo import ZoneInfo
 
-from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    Update,
+)
 from telegram.ext import ContextTypes
 
 from core.ai import extract_note_metadata
@@ -17,10 +23,12 @@ from core.memory import (
     get_note,
     get_notes_by_tag,
     get_user_notes,
+    get_wishes,
     normalize_tag,
     remove_tag_from_note,
     set_member_timezone,
     set_note_tags,
+    set_wish_status,
 )
 from core.timeutils import format_dt, now_prompt_str
 
@@ -280,6 +288,100 @@ async def members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def _wish_member(update: Update):
+    user_id = str(update.effective_user.id)
+    if not is_allowed(user_id):
+        await update.message.reply_text("⛔ Нет доступа.")
+        return None
+    if not get_member_name(user_id):
+        await update.message.reply_text("Сначала напиши /start")
+        return None
+    return user_id
+
+
+async def wishes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _wish_member(update):
+        return
+    person = context.args[0] if context.args else None
+    wishes = get_wishes("open", person)
+    if not wishes:
+        who = f" у {person}" if person else ""
+        await update.message.reply_text(f"Открытых желаний{who} нет.")
+        return
+
+    header = "💭 Открытые желания" + (f" ({person})" if person else "") + ":"
+    lines = [header, ""]
+    buttons = []
+    for w in wishes:
+        lines.append(f"#{w['id']} {w['text']}")
+        buttons.append([InlineKeyboardButton(f"✅ #{w['id']} {w['text'][:28]}", callback_data=f"wishdone_{w['id']}")])
+    await update.message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def fulfilled_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _wish_member(update):
+        return
+    person = context.args[0] if context.args else None
+    wishes = get_wishes("fulfilled", person)
+    if not wishes:
+        await update.message.reply_text("Пока ничего из желаний не отмечено сбывшимся.")
+        return
+
+    lines = ["🌟 Сбывшиеся желания" + (f" ({person})" if person else "") + ":", ""]
+    for w in wishes:
+        by = f" — отметил(а): {w['fulfilled_by']}" if w.get("fulfilled_by") else ""
+        lines.append(f"#{w['id']} {w['text']}{by}")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await _wish_member(update)
+    if not user_id:
+        return
+    if not context.args:
+        await update.message.reply_text("Формат: /done <id> (id видно в /wishes)")
+        return
+    try:
+        wish_id = int(context.args[0].lstrip("#"))
+    except ValueError:
+        await update.message.reply_text("ID должен быть числом. Формат: /done <id>")
+        return
+    n = set_wish_status(wish_id, "fulfilled", get_member_name(user_id))
+    await update.message.reply_text(
+        f"🌟 Желание #{wish_id} сбылось!" if n else f"Желание #{wish_id} не найдено."
+    )
+
+
+async def cancelwish_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _wish_member(update):
+        return
+    if not context.args:
+        await update.message.reply_text("Формат: /cancelwish <id>")
+        return
+    try:
+        wish_id = int(context.args[0].lstrip("#"))
+    except ValueError:
+        await update.message.reply_text("ID должен быть числом. Формат: /cancelwish <id>")
+        return
+    n = set_wish_status(wish_id, "cancelled", None)
+    await update.message.reply_text(
+        f"Желание #{wish_id} отменено." if n else f"Желание #{wish_id} не найдено."
+    )
+
+
+async def wish_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    wish_id = int(query.data.split("_")[1])
+    n = set_wish_status(wish_id, "fulfilled", get_member_name(str(update.effective_user.id)))
+    note = get_note(wish_id)
+    text = note["text"] if note else ""
+    if n:
+        await query.edit_message_text(f"🌟 Сбылось: {text}\n\n(остальные — /wishes)")
+    else:
+        await query.answer("Не получилось отметить", show_alert=True)
+
+
 async def clear_my_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
 
@@ -314,6 +416,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/rmtag <id> <тег> — убрать тег\n"
         "/retag <id> — переосмыслить теги заметки\n"
         "/edit_<id> — редактировать заметку в диалоге\n"
+        "/wishes [имя] — открытые желания\n"
+        "/fulfilled [имя] — сбывшиеся желания\n"
+        "/done <id> — отметить желание сбывшимся\n"
+        "/cancelwish <id> — отменить желание\n"
         "/members — кто в боте\n"
         "/timezone — задать таймзону (для «сегодня/вчера»)\n"
         "/clear — удалить все свои заметки\n"

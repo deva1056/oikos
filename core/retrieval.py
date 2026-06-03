@@ -67,6 +67,10 @@ def get_relevant_context(question: str, viewer_tz: str = None, history: list = N
                    for a in authors)
         ]
 
+    # тип заметки (желания) — жёсткий фильтр для вопросов «что хочет / какие желания»
+    if profile.get("note_type") == "wish":
+        rows = [r for r in rows if r.get("note_type") == "wish" and r.get("status") != "cancelled"]
+
     # теги/люди — МЯГКИЙ фильтр: сужают, когда совпали по значению, но не голодят
     # модель, если не совпали (теги разрежены/непоследовательны) → откат к набору.
     wanted = {tag_value(normalize_tag(t)) for t in profile.get("tags_any", [])}

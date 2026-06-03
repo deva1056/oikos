@@ -295,10 +295,11 @@ async def save_draft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     tags = [t for t in (normalize_tag(t) for t in meta.get("tags", [])) if t] or ["прочее"]
     event_date = _parse_date(meta.get("event_date"))
     event_time = _parse_time(meta.get("event_time"))
+    note_type = "wish" if meta.get("note_type") == "wish" else "note"
 
     editing_id = draft_state.get("editing_id")
     if editing_id:
-        update_note(editing_id, user_id, text, tags, event_date, event_time)
+        update_note(editing_id, user_id, text, tags, event_date, event_time, note_type)
         logger.info("Заметка #%s обновлена через диалог", editing_id)
         head = f"✏️ Обновлено #{editing_id}!"
     else:
@@ -309,9 +310,11 @@ async def save_draft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             tags=tags,
             event_date=event_date,
             event_time=event_time,
+            note_type=note_type,
+            status="open" if note_type == "wish" else None,
         )
         logger.info(f"Заметка #{note['id']} сохранена через диалог")
-        head = "✅ Сохранено!"
+        head = "💭 Желание сохранено!" if note_type == "wish" else "✅ Сохранено!"
     context.user_data.pop("draft", None)
 
     tags_display = " ".join(f"#{t}" for t in tags)

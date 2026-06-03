@@ -77,36 +77,72 @@ def get_all_members() -> list:
 # ---------- notes ----------
 
 def add_note(user_id, author_name: str, text: str, tags: list,
-             event_date=None, event_time=None) -> dict:
+             event_date=None, event_time=None, note_type="note", status=None) -> dict:
     """Сохранить заметку. `text` — финальная, согласованная через диалог версия.
 
-    event_date/event_time — машинно разрешённые дата/время события (для «что завтра»).
+    note_type='wish' + status='open' — для желаний (см. /wishes).
     Сырого/приватного поля нет by design: в БД попадает только то, что автор утвердил.
     """
     with db_cursor() as cur:
         cur.execute(
             """
-            INSERT INTO notes (author_id, author_name, text, tags, event_date, event_time)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO notes (author_id, author_name, text, tags, event_date, event_time, note_type, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
-            (str(user_id), author_name, text, json.dumps(tags), event_date, event_time),
+            (str(user_id), author_name, text, json.dumps(tags), event_date, event_time, note_type, status),
         )
         return dict(cur.fetchone())
 
 
 def update_note(note_id: int, author_id, text: str, tags: list,
-                event_date=None, event_time=None) -> int:
-    """Обновить свою заметку (текст + метаданные). Возвращает число изменённых строк."""
+                event_date=None, event_time=None, note_type="note") -> int:
+    """Обновить свою заметку (текст + метаданные). status не трогаем — им
+    управляют /done /cancelwish. Возвращает число изменённых строк."""
     with db_cursor() as cur:
         cur.execute(
             """
             UPDATE notes
-            SET text = %s, tags = %s, event_date = %s, event_time = %s,
+            SET text = %s, tags = %s, event_date = %s, event_time = %s, note_type = %s,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = %s AND author_id = %s
             """,
-            (text, json.dumps(tags), event_date, event_time, note_id, str(author_id)),
+            (text, json.dumps(tags), event_date, event_time, note_type, note_id, str(author_id)),
+        )
+        return cur.rowcount
+
+
+def get_wishes(status: str = "open", person: str = None) -> list:
+    """Желания (note_type='wish') с данным статусом, опц. по человеку (person-тег)."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, author_name, text, tags, status, fulfilled_by, fulfilled_at, created_at
+            FROM notes WHERE note_type = 'wish' AND status = %s
+            ORDER BY created_at DESC
+            """,
+            (status,),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    if person:
+        pv = tag_value(normalize_tag(person))
+        rows = [r for r in rows if pv in {tag_value(t) for t in _parse_tags(r["tags"])}]
+    return rows
+
+
+def set_wish_status(note_id: int, status: str, by_name: str = None) -> int:
+    """Сменить статус желания (open/fulfilled/cancelled). fulfilled_at ставим при fulfilled."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE notes
+            SET status = %s,
+                fulfilled_at = CASE WHEN %s = 'fulfilled' THEN CURRENT_TIMESTAMP ELSE NULL END,
+                fulfilled_by = CASE WHEN %s = 'fulfilled' THEN %s ELSE NULL END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND note_type = 'wish'
+            """,
+            (status, status, status, by_name, note_id),
         )
         return cur.rowcount
 
@@ -262,7 +298,8 @@ def query_notes(date_field: str = None, lo=None, hi=None, limit: int = CONTEXT_N
         if date_field in _DATE_FIELDS and lo is not None and hi is not None:
             cur.execute(
                 f"""
-                SELECT id, author_name, text, tags, event_date, event_time, created_at
+                SELECT id, author_name, text, tags, event_date, event_time,
+                       note_type, status, created_at
                 FROM notes
                 WHERE {date_field} BETWEEN %s AND %s
                 ORDER BY created_at DESC
@@ -273,7 +310,8 @@ def query_notes(date_field: str = None, lo=None, hi=None, limit: int = CONTEXT_N
         else:
             cur.execute(
                 """
-                SELECT id, author_name, text, tags, event_date, event_time, created_at
+                SELECT id, author_name, text, tags, event_date, event_time,
+                       note_type, status, created_at
                 FROM notes
                 ORDER BY created_at DESC
                 LIMIT %s

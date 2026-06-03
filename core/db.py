@@ -94,6 +94,11 @@ def init_db():
             event_date DATE,
             event_time TIME,
 
+            note_type TEXT DEFAULT 'note',
+            status TEXT,
+            fulfilled_at TIMESTAMP,
+            fulfilled_by TEXT,
+
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -105,6 +110,12 @@ def init_db():
     # Migration: машинная дата/время события (для вопросов «что завтра»)
     cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS event_date DATE")
     cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS event_time TIME")
+
+    # Migration: желания (note_type=wish + жизненный цикл)
+    cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS note_type TEXT DEFAULT 'note'")
+    cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS status TEXT")
+    cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS fulfilled_at TIMESTAMP")
+    cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS fulfilled_by TEXT")
 
     conn.commit()
     conn.close()
