@@ -58,6 +58,45 @@ def _complete(system: str, user: str, max_tokens: int, json_mode: bool = False) 
     return resp.choices[0].message.content.strip()
 
 
+def _chat(system: str, messages: list, max_tokens: int) -> str:
+    """Мультитёрн-обмен (для диалоговой правки черновика)."""
+    if PROVIDER == "anthropic":
+        resp = _anthropic().messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+        )
+        return resp.content[0].text.strip()
+
+    full = [{"role": "system", "content": system}] + messages
+    resp = _openai().chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=full,
+        max_completion_tokens=max_tokens,
+    )
+    return resp.choices[0].message.content.strip()
+
+
+REFINE_SYSTEM = """Ты помогаешь члену семьи составить заметку для общей семейной памяти.
+
+Пользователь описывает ситуацию и затем уточняет правками («убери про деньги», «сделай мягче», «добавь дату»).
+Твоя задача — собрать лаконичную, понятную заметку, которую увидят ВСЕ члены семьи.
+
+Правила:
+- Учитывай все правки пользователя, переписывай заметку целиком с их учётом.
+- Сохраняй важные факты: даты, имена, договорённости, суть.
+- Если пользователь просит убрать детали — убирай их полностью.
+- Пиши на русском, 1-3 коротких фразы.
+- Выводи ТОЛЬКО итоговый текст заметки — без пояснений, кавычек и префиксов."""
+
+
+def refine_draft(messages: list) -> str:
+    """Из истории диалога (реплики пользователя + прошлые черновики) выдаёт
+    обновлённый текст заметки. История живёт в памяти процесса, не в БД."""
+    return _chat(REFINE_SYSTEM, messages, max_tokens=400)
+
+
 def classify_and_tag(text: str) -> dict:
     system = """Ты помощник для классификации сообщений семейного бота.
 
@@ -79,19 +118,6 @@ def classify_and_tag(text: str) -> dict:
         return json.loads(raw)
     except Exception:
         return {"type": "note", "tags": ["прочее"]}
-
-
-def generate_interpretation(private_text: str) -> str:
-    """Generate a delicate, public-safe interpretation of private text."""
-    system = """Ты помощник для семейного бота. Твоя задача — переформулировать заметку в безопасную версию.
-
-Правила:
-- Скрывай интимные/личные детали
-- Сохраняй суть (о чём заметка)
-- Используй общие, деликатные формулировки
-- 1-2 короткие фразы
-- Отвечай ТОЛЬКО переформулировкой, без пояснений"""
-    return _complete(system, private_text, max_tokens=100)
 
 
 def ask_claude(question: str, public_context: str, asker_name: str, tz_name: str = None) -> str:

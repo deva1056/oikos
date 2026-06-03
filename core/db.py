@@ -31,6 +31,8 @@ def init_db():
     # Migration: per-member timezone (added later, so guard with IF NOT EXISTS)
     cursor.execute("ALTER TABLE members ADD COLUMN IF NOT EXISTS timezone TEXT")
 
+    # Single-field модель: храним только согласованный через диалог текст.
+    # Сырого/приватного поля нет by design — см. scripts/migrate_to_single_field.py
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS notes (
@@ -38,11 +40,7 @@ def init_db():
             author_id TEXT NOT NULL,
             author_name TEXT NOT NULL,
 
-            private_text TEXT NOT NULL,
-            public_interpretation TEXT,
-            public_text TEXT,
-
-            visibility TEXT DEFAULT 'private',
+            text TEXT NOT NULL,
             tags TEXT NOT NULL,
 
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

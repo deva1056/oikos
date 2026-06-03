@@ -80,17 +80,7 @@ async def list_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = ["📝 Твои заметки:\n"]
     for note in notes:
-        if note["visibility"] == "private":
-            icon = "🔒 ПРИВАТНАЯ"
-            text = note["private_text"]
-        elif note["visibility"] == "interpretation":
-            icon = "👥 ИНТЕРПРЕТАЦИЯ"
-            text = f"Суть: {note['public_interpretation']}"
-        else:  # public
-            icon = "🌐 ПУБЛИЧНАЯ"
-            text = note["public_text"]
-
-        lines.append(f"{icon}\n{text}\n/edit_{note['id']}")
+        lines.append(f"• {note['text']}")
 
     text = "\n\n".join(lines)
     if len(text) > 4000:
@@ -135,10 +125,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.message,
         "🤖 *Робо — семейный помощник*\n\n"
         "*Просто пиши в свободной форме:*\n"
-        "• Заметка → сохраню и предложу уровень видимости\n"
+        "• Заметка → вместе доведём формулировку в диалоге, потом сохранишь\n"
         "• Вопрос → отвечу на основе памяти семьи\n\n"
+        "*Во время черновика:* пиши правки словами, затем 💾 Сохранить или ❌ Отмена\n\n"
         "*Команды:*\n"
         "/start — регистрация\n"
+        "/note <текст> — начать заметку\n"
+        "/ask <вопрос> — спросить память\n"
         "/notes — все твои заметки\n"
         "/members — кто в боте\n"
         "/timezone — задать таймзону (для «сегодня/вчера»)\n"

@@ -48,18 +48,23 @@ def set_member_timezone(user_id, tz: str):
     conn.close()
 
 
-def add_note(user_id, author_name: str, private_text: str, tags: list, visibility: str = "private", interpretation: str = None, public_text: str = None) -> dict:
+def add_note(user_id, author_name: str, text: str, tags: list) -> dict:
+    """Сохранить заметку. `text` — финальная, согласованная через диалог версия.
+
+    Сырого/приватного поля нет by design: в БД попадает только то, что
+    автор утвердил для семьи.
+    """
     conn = get_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
 
     tags_json = json.dumps(tags)
     cursor.execute(
         """
-        INSERT INTO notes (author_id, author_name, private_text, public_interpretation, public_text, visibility, tags)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO notes (author_id, author_name, text, tags)
+        VALUES (%s, %s, %s, %s)
         RETURNING *
         """,
-        (str(user_id), author_name, private_text, interpretation, public_text, visibility, tags_json),
+        (str(user_id), author_name, text, tags_json),
     )
     note = cursor.fetchone()
     conn.commit()
@@ -67,22 +72,6 @@ def add_note(user_id, author_name: str, private_text: str, tags: list, visibilit
     conn.close()
 
     return dict(note)
-
-
-def update_note_visibility(note_id: int, visibility: str, interpretation: str = None, public_text: str = None):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        UPDATE notes
-        SET visibility = %s, public_interpretation = %s, public_text = %s, updated_at = CURRENT_TIMESTAMP
-        WHERE id = %s
-        """,
-        (visibility, interpretation, public_text, note_id),
-    )
-    conn.commit()
-    cursor.close()
-    conn.close()
 
 
 def get_user_notes(user_id):
@@ -114,18 +103,18 @@ def delete_user_notes(user_id):
 
 
 def get_public_context(viewer_tz: str = None) -> str:
-    """Get only public notes (interpretation + public) for Claude.
+    """Все заметки семьи для ответов ассистента.
 
-    Timestamps are rendered in the asking member's timezone so that
-    "today"/"yesterday" line up with how they experience the day.
+    Уровней приватности больше нет — каждая сохранённая заметка видна семье.
+    Метки времени рендерятся в таймзоне спрашивающего, чтобы «сегодня/вчера»
+    совпадали с тем, как он переживает день.
     """
     conn = get_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute(
         """
-        SELECT author_name, public_interpretation, public_text, visibility, created_at
+        SELECT author_name, text, created_at
         FROM notes
-        WHERE visibility IN ('interpretation', 'public')
         ORDER BY created_at ASC
         """,
     )
@@ -138,16 +127,10 @@ def get_public_context(viewer_tz: str = None) -> str:
 
     lines = []
     for note in notes:
-        if note["visibility"] == "interpretation" and note["public_interpretation"]:
-            content = note["public_interpretation"]
-        elif note["visibility"] == "public" and note["public_text"]:
-            content = note["public_text"]
-        else:
-            continue
         ts = format_dt(note["created_at"], viewer_tz)
-        lines.append(f"[{ts}] {note['author_name']}: {content}")
+        lines.append(f"[{ts}] {note['author_name']}: {note['text']}")
 
-    return "\n".join(lines) if lines else "Заметок пока нет."
+    return "\n".join(lines)
 
 
 def get_all_members() -> list:
