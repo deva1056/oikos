@@ -1,397 +1,199 @@
-# Робо v2 — Техническая документация для разработчиков
+# Робо — техническая документация
 
-## 🎯 Контекст и мотивация
+## Идея
 
-**Проблема:** Семья из 2-3 человек часто забывает договорённости, планы, важные даты. Нужна общая память.
+Общая память семьи в Telegram. Две ключевые механики:
 
-**Решение:** Telegram-бот, который:
-1. Собирает заметки от всех членов семьи
-2. Использует Claude для понимания контекста и ответов на вопросы
-3. Помнит приватные данные безопасно — каждый контролирует видимость
+1. **Заметка рождается в диалоге.** Пользователь пишет сырьё, LLM формулирует
+   черновик, пользователь правит словами, по `/save` сохраняется финальный текст.
+   Сырьё нигде не хранится и не логируется.
+2. **Ответ через поиск, а не дамп.** Вопрос превращается в профиль поиска
+   (теги/люди/автор/период/тип), профиль режет заметки на уровне SQL+Python, и
+   только релевантный срез уходит в LLM.
 
-**Критичное требование:** Жена должна доверять боту и не бояться, что её приватные записи увидит муж (администратор).
-
----
-
-## 🏗️ Архитектура
-
-### Принцип разделения ответственности
-
-```
-core/          → Бизнес-логика (БД, AI, приватность)
-                  [Переиспользуется в будущем MCP-сервере]
-
-bot/           → Telegram-слой (хендлеры, UI)
-                  [Специфично для Telegram]
-```
+### Модель приватности (важно)
+Уровней видимости нет. В БД лежит только согласованный автором текст → админ
+видит ровно то, что предназначено семье. Это сознательный отказ от «приватных
+полей»: надёжно скрыть данные от админа в серверном Telegram-боте нельзя (сервер
+всё равно обрабатывает входящее), поэтому секрет просто **не сохраняется**.
 
 ---
 
-## 🗄️ База данных (PostgreSQL)
+## Архитектура
 
-На Railway используется **PostgreSQL** для сохранения данных при рестартах.  
-Локально можно использовать SQLite для разработки (автоматически создаётся в `data/oikos.db`).
+```
+core/   — бизнес-логика, без Telegram (потенциально переиспользуема в MCP)
+bot/    — Telegram-слой (хендлеры, диалоги, сессии)
+scripts/— разовое обслуживание БД
+```
 
-### Таблица `members`
+LLM-вызовы синхронные (SDK), но в хендлерах оборачиваются в `asyncio.to_thread`,
+чтобы не блокировать event loop. Доступ к БД — через пул соединений (`db_cursor`).
+
+---
+
+## Данные (PostgreSQL)
+
 ```sql
-CREATE TABLE members (
-  id INTEGER PRIMARY KEY,
+members(
+  id SERIAL PK,
   telegram_id TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
+  timezone TEXT,                 -- IANA, определяется по геолокации
+  created_at TIMESTAMP
+)
 
-### Таблица `notes`
-```sql
-CREATE TABLE notes (
-  id INTEGER PRIMARY KEY,
-  author_id TEXT NOT NULL,
+notes(
+  id SERIAL PK,
+  author_id TEXT NOT NULL REFERENCES members(telegram_id),
   author_name TEXT NOT NULL,
-  
-  -- Трёхуровневая видимость приватности
-  private_text TEXT NOT NULL,        
-    -- Исходный текст, видит ТОЛЬКО автор
-    -- Пример: "Мечтаю о путешествии один"
-  
-  public_interpretation TEXT,        
-    -- Деликатная интерпретация (если видимость = 'interpretation')
-    -- Пример: "Личные мечты и желания"
-  
-  public_text TEXT,                  
-    -- Полный текст (если видимость = 'public')
-    -- Пример: "Мечтаю о путешествии один"
-  
-  -- Метаданные
-  visibility TEXT DEFAULT 'private',
-    -- 'private'         → видит только автор
-    -- 'interpretation'  → все видят интерпретацию
-    -- 'public'          → все видят полный текст
-  
-  tags TEXT NOT NULL,                
-    -- JSON: ["здоровье", "планы", "подарки"]
-  
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  
-  FOREIGN KEY (author_id) REFERENCES members(telegram_id)
-);
+
+  text TEXT NOT NULL,            -- финальная согласованная версия (единственное поле текста)
+  tags TEXT NOT NULL,            -- JSON: ["topic:врач","person:варя","type:событие"]
+
+  event_date DATE,               -- машинная дата события (для «что завтра»)
+  event_time TIME,
+
+  note_type TEXT DEFAULT 'note', -- 'note' | 'wish'
+  status TEXT,                   -- для желаний: 'open'|'fulfilled'|'cancelled'
+  fulfilled_at TIMESTAMP,
+  fulfilled_by TEXT,
+
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP
+)
 ```
+
+Схема создаётся/мигрируется в `init_db()` через `CREATE TABLE IF NOT EXISTS` +
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — новые колонки приезжают на старте,
+отдельные миграции не нужны (кроме разовой `migrate_to_single_field.py`).
 
 ---
 
-## 🔐 Система приватности
+## Жизненный цикл заметки (`bot/handlers/draft.py`)
 
-### Три уровня видимости
+`ConversationHandler`, состояние `DRAFTING`. Черновик и история реплик живут в
+`context.user_data["draft"]` (память процесса, не БД).
 
-| Уровень | private_text | interpretation | public_text | Кто видит | Юзкейс |
-|---------|--------------|----------------|------------|-----------|--------|
-| `private` | ✅ Автор | ❌ | ❌ | Только автор | Интимные мысли |
-| `interpretation` | ✅ Автор | ✅ Все | ❌ | Автор + остальные (суть) | Деликатная инфа |
-| `public` | ✅ Автор | ✅ Все | ✅ Все | Все | Открытые планы |
+1. **Вход.** `looks_like_question()` (эвристика, без LLM) делит вопрос/заметку.
+   Override: `/note`, `/ask`. Ошибка маршрутизации чинится кнопкой (variant A).
+2. **Черновик.** `refine_draft(history)` собирает текст; правки — обычными
+   сообщениями (мультитёрн), кнопки `💾/❌/❓`.
+3. **Сохранение.** `extract_note_metadata(text, tz, known_tags, author)` →
+   typed-теги + `event_date/time` + `note_type`. `add_note(...)` (или
+   `update_note(...)` при `/edit_<id>`).
 
-### Логика видимости в коде
-
-**При сохранении заметки:**
-```python
-# Пользователь пишет приватный текст
-private_text = "Я мечтаю о путешествии один"
-
-# Claude генерирует интерпретацию
-interpretation = "Личные мечты и желания"
-
-# Пользователь выбирает видимость
-if user_choice == 'private':
-    save(private_text=private_text, interpretation=None, public_text=None, visibility='private')
-elif user_choice == 'interpretation':
-    save(private_text=private_text, interpretation=interpretation, public_text=None, visibility='interpretation')
-elif user_choice == 'public':
-    save(private_text=private_text, interpretation=interpretation, public_text=private_text, visibility='public')
-```
-
-**При ответе на вопрос:**
-```python
-# Claude видит ТОЛЬКО публичные данные
-context_for_claude = []
-for note in all_notes:
-    if note.visibility == 'private':
-        pass  # Пропускаем, Claude не видит
-    elif note.visibility == 'interpretation':
-        context_for_claude.append(f"{note.author}: {note.interpretation}")
-    elif note.visibility == 'public':
-        context_for_claude.append(f"{note.author}: {note.public_text}")
-
-answer = claude(question, context_for_claude)
-```
+Правило person-тега: заметка от первого лица → `person:<автор>` (имя автора
+передаётся в экстрактор).
 
 ---
 
-## 🧠 Claude Integration
+## Поиск контекста (`core/retrieval.py`)
 
-### 1. Генерация интерпретации (при сохранении)
-
-**Цель:** Превратить приватный текст в деликатную, безопасную версию.
-
-**Промпт:**
 ```
-Ты ассистент для семейного бота. Твоя задача — переформулировать заметку в безопасную версию, которую другие члены семьи могут видеть.
-
-Правила:
-- Скрывай интимные детали
-- Сохраняй суть (о чём заметка)
-- Используй общие формулировки
-- Будь деликатен
-
-Пример:
-Приватный текст: "Мечтаю, что жена мне сделает минет"
-Интерпретация: "Романтические желания"
-
-Приватный текст: "{private_text}"
-Интерпретация:
+вопрос → extract_search_profile(question, tz, known_tags, history)
+       → {tags_any, tags_all, people, authors, note_type, period, date_*}
+       → period → Python считает границы (timeutils.period_bounds), даты НЕ от LLM
+       → query_notes(date_field, lo, hi)        # SQL: дата — жёсткий фильтр
+       → фильтр по автору (жёсткий) и note_type=wish (жёсткий)
+       → теги/люди — МЯГКИЙ фильтр (по значению, без namespace); пусто → откат
+       → срез (до 30) → ask_claude(question, срез, asker, tz, history)
 ```
 
-**Вывод:** `public_interpretation`
-
-### 2. Ответ на вопрос (при запросе)
-
-**Цель:** Ответить на основе ТОЛЬКО публичных данных.
-
-**Промпт:**
-```
-Ты Робо — семейный AI-помощник. Вопрос от {asker_name}.
-
-Память семьи (публичные заметки):
-{public_context}
-
-Вопрос: {question}
-
-Ответь кратко на основе известной информации.
-Если информации нет — честно скажи об этом.
-```
-
-**Ключ:** Claude **не может видеть** `private_text` — она вообще не передаётся в контекст.
+Принципы:
+- **Дата и автор — жёсткие** (структурные, надёжные). **Теги/люди — мягкие**:
+  сужают при совпадении, но не «голодят» модель при разрежённых тегах.
+- Сравнение тегов **по значению** (`tag_value`): `topic:планы` ≡ `планы` —
+  чтобы матчить и старые плоские, и новые namespaced.
+- Профайлер устойчив: при сбое LLM откатывается на последние заметки.
 
 ---
 
-## 📂 Структура кода
+## Память сессии (`bot/handlers/session.py`)
 
-```
-oikos/
-├── core/
-│   ├── __init__.py
-│   ├── auth.py           # is_allowed(user_id) → проверка whitelist
-│   ├── memory.py         # CRUD для заметок
-│   │                     # - load_memory() / save_memory()
-│   │                     # - get_member_name()
-│   │                     # - add_note() / delete_note()
-│   │                     # - get_public_context() [ВАЖНО: только публичное]
-│   ├── ai.py             # Claude integration
-│   │                     # - classify_and_tag(text) → type, tags
-│   │                     # - generate_interpretation(private_text) → interpretation
-│   │                     # - ask_claude(question, public_context) → answer
-│   └── db.py             # SQLite schema + init
-│
-├── bot/
-│   ├── __init__.py
-│   ├── handlers/
-│   │   ├── __init__.py
-│   │   ├── start.py      # /start → регистрация
-│   │   ├── messages.py   # обработка свободного текста
-│   │   │                 # 1. Классифицировать (note vs question)
-│   │   │                 # 2. Если note → генерировать интерпретацию
-│   │   │                 # 3. Показать пользователю (с кнопками видимости)
-│   │   │                 # 4. Сохранить
-│   │   ├── commands.py   # /notes, /members, /clear, /help
-│   │   └── visibility.py # [NEW] смена видимости заметки
-│   └── main.py           # запуск
-│
-├── data/
-│   └── .gitkeep
-│
-├── .env                  # gitignored
-├── .env.example
-├── .gitignore
-├── requirements.txt
-│
-├── PRODUCT.md           # Для пользователя
-├── DEVELOPMENT.md       # Для разработчиков (этот файл)
-└── README.md            # Технический README
-```
+`chat_turns` (последние ~3 обмена) и `last_active` в `user_data`. `TypeHandler`
+в group −1 на каждый апдейт: активность продлевает сессию (sliding TTL), простой
+> `SESSION_TTL_MIN` (дефолт 15) чистит и историю, и незавершённый черновик.
+История кормится и профайлеру, и `ask_claude` → работают уточнения.
 
 ---
 
-## 🔄 Сценарии использования (для разработчика)
+## Теги
 
-### Сценарий 1: Добавление заметки
-
-```
-1. Пользователь пишет: "Мечтаю о путешествии один"
-   → handlers/messages.py:handle_message()
-
-2. Классифицируем: classify_and_tag("Мечтаю о путешествии один")
-   → ai.py (Claude)
-   → type = "note", tags = ["мечты", "путешествия"]
-
-3. Генерируем интерпретацию: generate_interpretation("Мечтаю о путешествии один")
-   → ai.py (Claude с промптом)
-   → interpretation = "Личные желания"
-
-4. Показываем пользователю:
-   "✏️ Интерпретирую как: 'Личные желания'
-    🔒 Только я
-    👥 Показать суть
-    🌐 Показать всё"
-   
-   → handlers/visibility.py (ConversationHandler, ждём выбора)
-
-5. Пользователь нажимает: 👥
-   → handlers/visibility.py (callback)
-   → memory.py:add_note(
-       private_text="Мечтаю о путешествии один",
-       interpretation="Личные желания",
-       public_text=None,
-       visibility='interpretation',
-       tags=['мечты', 'путешествия']
-     )
-
-6. Сохраняется в БД.
-```
-
-### Сценарий 2: Ответ на вопрос
-
-```
-1. Жена пишет: "Что мечтает муж?"
-   → handlers/messages.py:handle_message()
-
-2. Классифицируем: classify_and_tag("Что мечтает муж?")
-   → ai.py (Claude)
-   → type = "question"
-
-3. Получаем публичный контекст:
-   → memory.py:get_public_context()
-   → Только заметки с visibility='interpretation' или 'public'
-   → В контексте только interpretation или public_text, НЕ private_text
-
-4. Спрашиваем Claude:
-   → ai.py:ask_claude(
-       question="Что мечтает муж?",
-       public_context="Муж: Личные желания"  [<-- только это видит Claude]
-     )
-
-5. Claude отвечает:
-   "Муж упомянул о личных желаниях"
-
-6. Отправляем ответ жене.
-```
-
-### Сценарий 3: Смена видимости
-
-```
-1. Жена открывает /notes
-   → handlers/commands.py:list_notes()
-   → memory.py:get_user_notes(user_id)
-   → Показываем все заметки с кнопками смены видимости
-
-2. Жена нажимает [👁️ Сделать видимой] на приватной заметке
-   → handlers/visibility.py:change_visibility(note_id, 'interpretation')
-   → memory.py:update_note(note_id, visibility='interpretation')
-   → БД обновляется
-
-3. Теперь эта заметка видна другим членам (как интерпретация).
-```
+Typed namespaces: `topic:` (тема), `person:` (человек/питомец), `type:`
+(событие/покупка/идея/факт/желание). `normalize_tag()` — механическая нормализация
+(регистр, `ё→е`, пробелы→`_`, мусор, namespace сохраняется). Семантическую
+консолидацию синонимов делает LLM, получая список уже существующих тегов
+(динамический словарь) — без захардкоженных алиасов.
 
 ---
 
-## 🚨 Критичные моменты (для безопасности)
+## Желания
 
-### ❌ НИКОГДА не делать
-```python
-# ❌ НЕПРАВИЛЬНО — Claude видит приватный текст
-context = f"Все заметки: {note.private_text}"
-answer = claude(question, context)
-
-# ✅ ПРАВИЛЬНО — Claude видит только публичное
-if note.visibility == 'private':
-    pass  # Пропускаем вообще
-elif note.visibility == 'interpretation':
-    context += f"{note.author}: {note.interpretation}"
-```
-
-### ❌ Не логировать приватные тексты
-```python
-# ❌ НЕПРАВИЛЬНО
-logger.info(f"Заметка: {private_text}")  # Текст в логе!
-
-# ✅ ПРАВИЛЬНО
-logger.info(f"Заметка #{note.id} от {author_name}")  # Только метаданные
-```
-
-### ❌ Не показывать приватное в API
-```python
-# ❌ НЕПРАВИЛЬНО — при /notes показываем приватный текст другому пользователю
-if user_id != note.author_id:
-    return note.private_text  # Утечка!
-
-# ✅ ПРАВИЛЬНО
-if user_id != note.author_id:
-    if note.visibility == 'private':
-        return None  # Не показываем вообще
-    elif note.visibility == 'interpretation':
-        return note.interpretation
-    elif note.visibility == 'public':
-        return note.public_text
-```
+`note_type='wish'` ставит LLM (`extract_note_metadata`), не ключевые слова.
+Новое желание → `status='open'`. Команды: `/wishes [имя]`, `/fulfilled [имя]`,
+`/done <id>`, `/cancelwish <id>` (отметить может любой участник, пишем
+`fulfilled_by`). Естественные вопросы «что хочет X» → профайлер ставит
+`note_type=wish`, retrieval отдаёт только желания. Без рейтингов по людям —
+осознанно (чтобы не превращать в «бухгалтерию обид»).
 
 ---
 
-## 🧪 Тестирование
+## LLM-слой (`core/ai.py`)
 
-### Unit-тесты (для `core/`)
-- `test_memory.py` — CRUD операции
-- `test_ai.py` — генерация интерпретации
-- `test_visibility.py` — логика приватности
+Провайдер выбирается `LLM_PROVIDER` (`openai`|`anthropic`); клиенты ленивые,
+модели — из env. Функции:
+- `_complete(system, user, ...)` / `_chat(system, messages, ...)` — единичный/мультитёрн.
+- `refine_draft(messages)` — формулировка черновика.
+- `extract_note_metadata(text, tz, known_tags, author)` — теги + дата + note_type.
+- `extract_search_profile(question, tz, known_tags, history)` — профиль поиска.
+- `ask_claude(question, context, asker, tz, history)` — ответ (имя историческое).
 
-### Integration-тесты (для `bot/`)
-- Добавить заметку → выбрать видимость → проверить в БД
-- Задать вопрос → проверить что Claude видит только публичное
-- Смена видимости → проверить обновление в БД
-
-### Manual-тесты
-1. Муж добавляет приватную заметку → жена её не видит в `/notes`
-2. Муж добавляет публичную заметку → жена её видит в `/notes`
-3. Жена спрашивает → Claude отвечает на основе только публичных данных
-4. Муж меняет видимость приватной на публичную → жена её видит
+**Готча:** экстракторы НЕ используют `response_format=json_object` (часть моделей
+его не поддерживает → 400). JSON парсится из обычного ответа (`_parse_json`,
+снимает ```-обёртки). Ошибки LLM в боте глотает `_run_llm` (логируется тип, не
+текст пользователя) → дружелюбное сообщение вместо краша.
 
 ---
 
-## 📦 Dependencies
+## Таймзоны (`core/timeutils.py`)
 
-```
-anthropic          # Claude API
-python-telegram-bot # Telegram bot framework
-python-dotenv      # Environment variables
-sqlite3            # Built-in, no need to install
-```
+Таймзона на участника, определяется по геолокации (`timezonefinder`) или
+`/timezone <IANA>`. `period_bounds(period, tz)` детерминированно считает границы
+(`today/tomorrow/this_week/...`). `event_date` хранится как локальная дата;
+`created_at` (UTC) для дневных срезов конвертируется через `day_range_utc`.
 
 ---
 
-## 🚀 Next Steps
+## Конвенции / на что не наступить
 
-1. **v2.0** (текущее)
-   - [ ] Миграция с JSON на SQLite
-   - [ ] Система приватности (3 уровня)
-   - [ ] Смена видимости
-   - [ ] Unit-тесты
+- **Не логировать текст заметок/сообщений** — только id/метаданные.
+- **Markdown** в исходящих с динамическим текстом — через `safe_reply`
+  (фолбэк на plain при битой разметке).
+- **Удаление/правка чужого** — `delete_note`/`update_note` фильтруют по `author_id`.
+- **`event_date` ретроактивно не пересчитывать** (относительные даты были
+  привязаны к моменту написания) — `retag_notes.py` трогает только теги.
+- **Имя пользователя** санитизируется (`sanitize_name`).
 
-2. **v2.1**
-   - Фильтрация заметок по тегам
-   - Улучшенный поиск
+---
 
-3. **v3.0**
-   - MCP-сервер (переиспользует `core/`)
-   - Веб-интерфейс
+## Скрипты (`scripts/`, запуск с `DATABASE_URL`)
 
-4. **Future**
-   - Шифрование приватных текстов (если нужно)
-   - Резервные копии
-   - Экспорт данных
+| Скрипт | Назначение |
+|---|---|
+| `migrate_to_single_field.py` | разовая миграция со старой 3-уровневой схемы |
+| `normalize_existing_tags.py` | нормализация тегов (`--dry`) |
+| `retag_notes.py [--all]` | переосмыслить теги через LLM (`--dry`) |
+| `seed_test_data.py` | тестовый набор с тегом `debug` |
+| `delete_by_tag.py <tag>` | удалить всё по тегу (`--dry`) |
+| `delete_notes.py <id...>` | удалить заметки по id (`--dry`) |
+
+---
+
+## Roadmap
+
+- Авто-связывание исполнения желаний («купили ролики» → закрыть желание #N) +
+  таблица связей `note_links`.
+- Профили «живых существ» (beings): имя/пол/др/атрибуты, авто-наполнение из заметок.
+- Перенос `tags` в `jsonb` + GIN-индекс (когда вырастет объём).
+- Напоминания по `event_date` (cron).
