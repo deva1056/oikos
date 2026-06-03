@@ -97,6 +97,20 @@ def refine_draft(messages: list) -> str:
     return _chat(REFINE_SYSTEM, messages, max_tokens=400)
 
 
+EDIT_SYSTEM = """Ты редактируешь существующую заметку семейной памяти по инструкции.
+
+Дан текущий текст заметки и правка пользователя. Внеси ТОЛЬКО запрошенное изменение.
+Всё остальное сохрани ДОСЛОВНО: формулировки, факты, детали, стиль, порядок.
+НЕ переформулируй, НЕ сокращай, НЕ интерпретируй, ничего не добавляй от себя.
+Верни ТОЛЬКО полный обновлённый текст заметки — без пояснений и кавычек."""
+
+
+def edit_text(current_text: str, instruction: str) -> str:
+    """Применить точечную правку к тексту, сохраняя оригинал дословно (для /edit)."""
+    user = f"Текущая заметка:\n{current_text}\n\nПравка: {instruction}"
+    return _complete(EDIT_SYSTEM, user, max_tokens=600)
+
+
 def _parse_json(raw: str) -> dict:
     raw = raw.replace("```json", "").replace("```", "").strip()
     try:

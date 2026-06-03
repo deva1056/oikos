@@ -6,7 +6,7 @@ from datetime import date as _date, time as _time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 
-from core.ai import ask_claude, extract_note_metadata, refine_draft
+from core.ai import ask_claude, edit_text, extract_note_metadata, refine_draft
 from core.auth import is_allowed
 from core.memory import (
     add_note,
@@ -261,14 +261,23 @@ async def refine_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     instruction = update.message.text.strip()
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    draft_state["messages"].append({"role": "user", "content": instruction})
-    draft = await _run_llm(refine_draft, draft_state["messages"])
-    if draft is None:
-        draft_state["messages"].pop()  # откатываем неудавшуюся реплику
-        await update.message.reply_text(LLM_ERROR)
-        return DRAFTING
-    draft_state["messages"].append({"role": "assistant", "content": draft})
-    draft_state["text"] = draft
+    if draft_state.get("editing_id"):
+        # редактирование: точечная правка, оригинал сохраняем дословно
+        draft = await _run_llm(edit_text, draft_state["text"], instruction)
+        if draft is None:
+            await update.message.reply_text(LLM_ERROR)
+            return DRAFTING
+        draft_state["text"] = draft
+    else:
+        # создание: собираем формулировку из диалога
+        draft_state["messages"].append({"role": "user", "content": instruction})
+        draft = await _run_llm(refine_draft, draft_state["messages"])
+        if draft is None:
+            draft_state["messages"].pop()  # откатываем неудавшуюся реплику
+            await update.message.reply_text(LLM_ERROR)
+            return DRAFTING
+        draft_state["messages"].append({"role": "assistant", "content": draft})
+        draft_state["text"] = draft
 
     await update.message.reply_text(_draft_message(draft), reply_markup=_draft_keyboard())
     return DRAFTING
