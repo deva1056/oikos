@@ -77,6 +77,13 @@ def get_relevant_context(question: str, viewer_tz: str = None) -> str:
         rows = tag_hits or rows  # soft: пусто по тегам → оставляем то, что есть
 
     selected = sorted(rows, key=lambda r: r["created_at"])[:SELECTED_LIMIT]
+
+    # диагностика (без текста заметок): что извлёк профиль и сколько ушло модели
+    logger.info(
+        "retrieval: profile=%s field=%s -> selected=%d",
+        {k: v for k, v in profile.items() if v}, field, len(selected),
+    )
+
     if not selected:
         return "Подходящих заметок не найдено."
 
