@@ -12,7 +12,14 @@ from telegram.ext import (
 
 load_dotenv()
 
-from bot.handlers.commands import clear_my_notes, help_command, list_notes, members
+from bot.handlers.commands import (
+    clear_my_notes,
+    help_command,
+    list_notes,
+    members,
+    timezone_command,
+)
+from bot.handlers.location import handle_location
 from bot.handlers.messages import handle_message
 from bot.handlers.start import ASKING_NAME, receive_name, start
 from core.auth import ALLOWED_IDS
@@ -45,6 +52,7 @@ def main():
     app.add_handler(conv)
     app.add_handler(CommandHandler("notes", list_notes))
     app.add_handler(CommandHandler("members", members))
+    app.add_handler(CommandHandler("timezone", timezone_command))
     app.add_handler(CommandHandler("clear", clear_my_notes))
     app.add_handler(CommandHandler("help", help_command))
 
@@ -52,6 +60,7 @@ def main():
     from bot.handlers.messages import save_note_callback
     app.add_handler(CallbackQueryHandler(save_note_callback, pattern=r"^vis_"))
 
+    app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info(f"✅ Робо запущен. Разрешённых ID: {len(ALLOWED_IDS)}")

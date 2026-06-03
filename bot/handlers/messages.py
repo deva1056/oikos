@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from core.ai import ask_claude, classify_and_tag, generate_interpretation
 from core.auth import is_allowed
-from core.memory import add_note, get_member_name, get_public_context
+from core.memory import add_note, get_member_name, get_member_timezone, get_public_context
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +33,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tags = result.get("tags", ["прочее"])
 
     if msg_type == "question":
-        public_context = get_public_context()
-        answer = ask_claude(text, public_context, author_name)
+        asker_tz = get_member_timezone(user_id)
+        public_context = get_public_context(asker_tz)
+        answer = ask_claude(text, public_context, author_name, asker_tz)
         await update.message.reply_text(answer)
     else:
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
