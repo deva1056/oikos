@@ -92,7 +92,16 @@ def get_relevant_context(question: str, viewer_tz: str = None, history: list = N
     if not selected:
         return "Подходящих заметок не найдено."
 
-    return "\n".join(
-        f"[{format_dt(r['created_at'], viewer_tz)}] {r['author_name']}: {r['text']}"
-        for r in selected
-    )
+    return "\n".join(_format_row(r, viewer_tz) for r in selected)
+
+
+_WISH_STATUS_RU = {"open": "открыто", "fulfilled": "исполнено", "cancelled": "отменено"}
+
+
+def _format_row(r, viewer_tz) -> str:
+    line = f"[{format_dt(r['created_at'], viewer_tz)}] {r['author_name']}: {r['text']}"
+    if r.get("note_type") == "wish":
+        label = _WISH_STATUS_RU.get(r.get("status"))
+        if label:
+            line += f" [желание: {label}]"
+    return line
