@@ -8,6 +8,7 @@ from core.memory import (
     get_all_tags,
     normalize_tag,
     query_notes,
+    tag_value,
 )
 from core.timeutils import day_range_utc, format_dt, period_bounds
 
@@ -52,29 +53,28 @@ def get_relevant_context(question: str, viewer_tz: str = None) -> str:
         logger.error("search profile failed: %s", type(e).__name__)
         profile = {}
 
+    # дата — жёсткий фильтр (на уровне SQL)
     field, lo, hi = _resolve_dates(profile, viewer_tz)
     rows = query_notes(field, lo, hi, CONTEXT_NOTE_LIMIT)
 
-    required = [normalize_tag(t) for t in profile.get("tags_all", [])]
-    required += [normalize_tag(f"person:{p}") for p in profile.get("people", [])]
-    any_tags = [normalize_tag(t) for t in profile.get("tags_any", [])]
+    # автор — жёсткий фильтр (структурный, надёжный)
     authors = [a.strip().lower() for a in profile.get("authors", []) if a.strip()]
+    if authors:
+        rows = [
+            r for r in rows
+            if any(a in (r["author_name"] or "").lower() or (r["author_name"] or "").lower() in a
+                   for a in authors)
+        ]
 
-    def matches(row) -> bool:
-        tags = _parse_tags(row["tags"])
-        if required and not all(t in tags for t in required):
-            return False
-        if any_tags and not any(t in tags for t in any_tags):
-            return False
-        if authors:
-            an = (row["author_name"] or "").lower()
-            if not any(a in an or an in a for a in authors):
-                return False
-        return True
-
-    has_filters = bool(field or required or any_tags or authors)
-    if has_filters:
-        rows = [r for r in rows if matches(r)]
+    # теги/люди — МЯГКИЙ фильтр: сужают, когда совпали по значению, но не голодят
+    # модель, если не совпали (теги разрежены/непоследовательны) → откат к набору.
+    wanted = {tag_value(normalize_tag(t)) for t in profile.get("tags_any", [])}
+    wanted |= {tag_value(normalize_tag(t)) for t in profile.get("tags_all", [])}
+    wanted |= {tag_value(normalize_tag(p)) for p in profile.get("people", [])}
+    wanted.discard("")
+    if wanted:
+        tag_hits = [r for r in rows if wanted & {tag_value(t) for t in _parse_tags(r["tags"])}]
+        rows = tag_hits or rows  # soft: пусто по тегам → оставляем то, что есть
 
     selected = sorted(rows, key=lambda r: r["created_at"])[:SELECTED_LIMIT]
     if not selected:

@@ -16,6 +16,11 @@ def sanitize_name(raw: str) -> str:
     return name[:64]
 
 
+def tag_value(tag: str) -> str:
+    """Значение тега без namespace: 'topic:покупки' и 'покупки' → 'покупки'."""
+    return (tag or "").split(":")[-1]
+
+
 def normalize_tag(tag: str) -> str:
     """Механическая нормализация тега (регистр, ё, пробелы, мусор).
 
