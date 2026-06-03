@@ -75,7 +75,7 @@ async def list_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Заметок пока нет.")
         return
 
-    lines = ["📝 *Твои заметки:*\n"]
+    lines = ["📝 Твои заметки:\n"]
     for note in notes:
         if note["visibility"] == "private":
             icon = "🔒 ПРИВАТНАЯ"
@@ -87,12 +87,12 @@ async def list_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             icon = "🌐 ПУБЛИЧНАЯ"
             text = note["public_text"]
 
-        lines.append(f"*{icon}*\n{text}\n/edit_{note['id']}")
+        lines.append(f"{icon}\n{text}\n/edit_{note['id']}")
 
     text = "\n\n".join(lines)
     if len(text) > 4000:
-        text = text[:4000] + "\n\n_(показаны последние записи)_"
-    await update.message.reply_text(text, parse_mode="Markdown")
+        text = text[:4000] + "\n\n(показаны последние записи)"
+    await update.message.reply_text(text)
 
 
 async def members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -108,8 +108,7 @@ async def members(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(
-        "👨‍👩‍👧‍👦 *Члены семьи:*\n" + "\n".join([f"• {m}" for m in members_list]),
-        parse_mode="Markdown",
+        "👨‍👩‍👧‍👦 Члены семьи:\n" + "\n".join([f"• {m}" for m in members_list]),
     )
 
 

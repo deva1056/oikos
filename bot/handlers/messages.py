@@ -58,9 +58,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         await update.message.reply_text(
-            f"✏️ Интерпретирую как:\n*{interpretation}*\n\nКак сохранить?",
+            f"✏️ Интерпретирую как:\n\n{interpretation}\n\nКак сохранить?",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
         )
 
 
