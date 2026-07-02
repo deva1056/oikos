@@ -47,6 +47,7 @@ from bot.handlers.draft import (
 from bot.handlers.location import handle_location
 from bot.handlers.session import touch_session
 from bot.handlers.story import story_command, story_photo
+from bot.handlers.translate import t_cz_command, t_eng_command
 from bot.handlers.start import ASKING_NAME, receive_name, start
 from core.auth import ALLOWED_IDS
 from core.db import init_db
@@ -112,6 +113,8 @@ def main():
     app.add_handler(CommandHandler("done", done_command))
     app.add_handler(CommandHandler("cancelwish", cancelwish_command))
     app.add_handler(CallbackQueryHandler(wish_done_callback, pattern=r"^wishdone_\d+$"))
+    app.add_handler(CommandHandler("t_cz", t_cz_command))
+    app.add_handler(CommandHandler("t_eng", t_eng_command))
     app.add_handler(CommandHandler("story", story_command))
     app.add_handler(
         MessageHandler(filters.PHOTO & filters.CaptionRegex(r"(?i)^/?story"), story_photo)
