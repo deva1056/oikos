@@ -16,6 +16,7 @@ from core.auth import is_allowed
 from core.memory import (
     add_tag_to_note,
     delete_user_notes,
+    extract_hashtags,
     get_all_members,
     get_all_tags,
     get_member_name,
@@ -261,7 +262,10 @@ async def retag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     meta = await asyncio.to_thread(
         extract_note_metadata, note["text"], get_member_timezone(user_id), known, note["author_name"]
     )
-    tags = [t for t in (normalize_tag(t) for t in meta.get("tags", [])) if t]
+    auto = [t for t in (normalize_tag(t) for t in meta.get("tags", [])) if t]
+    # явные #теги в тексте заметки переживают перетегирование
+    explicit = extract_hashtags(note["text"])
+    tags = explicit + [t for t in auto if t not in explicit]
     if not tags:
         await update.message.reply_text("Не удалось переосмыслить теги, попробуй ещё раз.")
         return

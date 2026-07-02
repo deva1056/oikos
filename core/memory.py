@@ -34,6 +34,23 @@ def normalize_tag(tag: str) -> str:
     return tag[:32]
 
 
+_HASHTAG_RE = re.compile(r"#([a-zа-яё0-9_:-]+)", re.IGNORECASE)
+
+
+def extract_hashtags(text: str) -> list:
+    """Явные #теги из текста заметки («... писал бота. #cz») — нормализованные, без дублей.
+
+    Автор ставит их сознательно, поэтому при сохранении они добавляются к
+    автоматическим LLM-тегам. Сам текст не изменяется (принцип «дословно»).
+    """
+    out = []
+    for raw in _HASHTAG_RE.findall(text or ""):
+        t = normalize_tag(raw)
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
 # ---------- members ----------
 
 def get_member_name(user_id) -> str:

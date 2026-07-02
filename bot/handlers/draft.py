@@ -10,6 +10,7 @@ from core.ai import ask_claude, edit_text, extract_note_metadata
 from core.auth import is_allowed
 from core.memory import (
     add_note,
+    extract_hashtags,
     get_all_tags,
     get_member_name,
     get_member_timezone,
@@ -287,7 +288,10 @@ async def save_draft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     tz = get_member_timezone(user_id)
     known_tags = [t for t, _ in get_all_tags()]
     meta = await _run_llm(extract_note_metadata, text, tz, known_tags, author_name) or {}
-    tags = [t for t in (normalize_tag(t) for t in meta.get("tags", [])) if t] or ["прочее"]
+    auto = [t for t in (normalize_tag(t) for t in meta.get("tags", [])) if t]
+    # явные #теги автора («... #cz») добавляются к автоматическим, автор — приоритетнее
+    explicit = extract_hashtags(text)
+    tags = explicit + [t for t in auto if t not in explicit] or ["прочее"]
     event_date = _parse_date(meta.get("event_date"))
     event_time = _parse_time(meta.get("event_time"))
     note_type = "wish" if meta.get("note_type") == "wish" else "note"
