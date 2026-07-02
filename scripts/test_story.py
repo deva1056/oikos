@@ -77,9 +77,18 @@ def test_prompts():
         story.generate_story_weather("bad")
         check("prší" in calls["system"], "weather bad: лексика плохой погоды")
 
-        story.generate_story_from_image("QUJD", vocab=None)
+        story.generate_story_from_image("QUJD", vocab=["mít radost"])
+        s = calls["system"]
         check(calls["image"] == "QUJD" and calls["media"] == "image/jpeg", "image: b64 дошёл до vision")
-        check("6–8" in calls["system"], "image: 6–8 предложений")
+        check("6–8" in s and "Nejdřív" in s and "minulý čas" in s, "image тип 1: история с nejdřív/nakonec")
+        check("pracovní list" in s and "НАСТОЯЩЕМ" in s, "image тип 2: учебный лист в настоящем времени")
+        check("📚" in s and "1️⃣" in s, "image тип 2: заголовок темы и нумерация")
+        check("Opěrné fráze z listu" in s and "ДОСЛОВНО" in s, "image тип 2: опорные фразы дословно")
+        check("НЕ используй" in s, "image тип 2: без nejdřív/potom")
+        check("не\nвидишь ни сцены" in s or "не видишь ни сцены" in s.replace("\n", " "),
+              "image тип 3: честный отказ на нерелевантном")
+        check("Slovníček" in s, "image: Slovníček в обвязке")
+        check("mít radost" in s, "image: vocab вплетён и в vision-режиме")
     finally:
         story._complete, story._complete_vision = orig_c, orig_v
 
