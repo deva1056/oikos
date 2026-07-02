@@ -113,8 +113,10 @@ def main():
     app.add_handler(CommandHandler("done", done_command))
     app.add_handler(CommandHandler("cancelwish", cancelwish_command))
     app.add_handler(CallbackQueryHandler(wish_done_callback, pattern=r"^wishdone_\d+$"))
-    app.add_handler(CommandHandler("t_cz", t_cz_command))
-    app.add_handler(CommandHandler("t_eng", t_eng_command))
+    # tcz/teng — основные, t_cz/t_eng — алиасы (подчёркивание в командах валидно,
+    # но короткое имя удобнее набирать)
+    app.add_handler(CommandHandler(["tcz", "t_cz"], t_cz_command))
+    app.add_handler(CommandHandler(["teng", "t_eng"], t_eng_command))
     app.add_handler(CommandHandler("story", story_command))
     app.add_handler(
         MessageHandler(filters.PHOTO & filters.CaptionRegex(r"(?i)^/?story"), story_photo)
