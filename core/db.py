@@ -117,5 +117,24 @@ def init_db():
     cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS fulfilled_at TIMESTAMP")
     cursor.execute("ALTER TABLE notes ADD COLUMN IF NOT EXISTS fulfilled_by TEXT")
 
+    # Личный словарь чешских фраз (для /story). tags — JSON-массив, как у notes.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS phrases (
+            id SERIAL PRIMARY KEY,
+            member_id TEXT NOT NULL,
+            phrase TEXT NOT NULL,
+            translation TEXT,
+            example TEXT,
+            tags TEXT NOT NULL DEFAULT '[]',
+            source TEXT DEFAULT 'manual',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (member_id) REFERENCES members(telegram_id)
+        )
+        """
+    )
+
     conn.commit()
     conn.close()

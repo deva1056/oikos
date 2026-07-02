@@ -420,6 +420,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/fulfilled [имя] — сбывшиеся желания\n"
         "/done <id> — отметить желание сбывшимся\n"
         "/cancelwish <id> — отменить желание\n"
+        "/story — история на чешском (A2): фото с подписью /story,\n"
+        "  /story weather good|bad, /story about_me <запрос>\n"
         "/members — кто в боте\n"
         "/timezone — задать таймзону (для «сегодня/вчера»)\n"
         "/clear — удалить все свои заметки\n"

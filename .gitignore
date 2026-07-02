@@ -7,3 +7,9 @@ __pycache__/
 venv/
 *.log
 .DS_Store
+
+# local test lab
+.pgdata/
+.env.lab
+openapi.json
+.tunnel_url

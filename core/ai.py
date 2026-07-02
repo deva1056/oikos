@@ -58,6 +58,58 @@ def _complete(system: str, user: str, max_tokens: int, json_mode: bool = False) 
     return resp.choices[0].message.content.strip()
 
 
+def _complete_vision(system: str, text: str, image_b64: str,
+                     media_type: str = "image/jpeg", max_tokens: int = 1024) -> str:
+    """Completion по картинке + тексту, routed к настроенному провайдеру.
+
+    Изображение живёт только в памяти (base64 внутри запроса) — не сохраняем
+    на диск и не логируем ни в каком виде (принцип приватности проекта).
+    """
+    if PROVIDER == "anthropic":
+        resp = _anthropic().messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_b64,
+                            },
+                        },
+                        {"type": "text", "text": text},
+                    ],
+                }
+            ],
+        )
+        return resp.content[0].text.strip()
+
+    # default: OpenAI / GPT
+    resp = _openai().chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
+                    },
+                ],
+            },
+        ],
+        max_completion_tokens=max_tokens,
+    )
+    return resp.choices[0].message.content.strip()
+
+
 def _chat(system: str, messages: list, max_tokens: int) -> str:
     """Мультитёрн-обмен (для диалоговой правки черновика)."""
     if PROVIDER == "anthropic":
