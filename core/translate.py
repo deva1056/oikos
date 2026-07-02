@@ -1,11 +1,9 @@
-"""Карманный переводчик под уровень ученика (/t_cz, /t_eng).
+"""Карманный переводчик под уровень ученика (/tcz, /teng).
 
 Двунаправленный: не-целевой язык → целевой (жёстко в рамках уровня ученика,
 чтобы перевод можно было запомнить и произнести самому), целевой → русский
 (без ограничений — родной). Направление определяет модель в том же вызове.
 """
-import re
-
 from core.ai import _complete
 
 _TARGETS = {
@@ -36,24 +34,3 @@ def translate(text: str, target: str) -> str:
 каждая начинается с 💡. Если ничего неочевидного нет — только перевод.
 Никаких приветствий, преамбул и предложений помочь ещё."""
     return _complete(system, text, max_tokens=600)
-
-
-_CYRILLIC_RE = re.compile(r"[а-яё]", re.IGNORECASE)
-_LATIN_RE = re.compile(r"[a-z]", re.IGNORECASE)
-
-
-def phrase_hint(source_text: str, result: str) -> str:
-    """Строка «💾 Сохранить в словарь: /phrase …» для коротких переводов ru→cz.
-
-    Направление узнаём эвристикой (модель его не сообщает): исходник кириллицей,
-    первая строка ответа — латиницей. Короткая фраза = первая строка ≤ 60 символов.
-    Не подходит → None (для /t_eng не вызывается вовсе: словарь чешский).
-    """
-    first = (result or "").strip().splitlines()[0].strip() if (result or "").strip() else ""
-    if not first or len(first) > 60:
-        return None
-    if not _CYRILLIC_RE.search(source_text or ""):
-        return None  # исходник не русский → это был перевод НА русский
-    if _CYRILLIC_RE.search(first) or not _LATIN_RE.search(first):
-        return None  # первая строка не похожа на чешский
-    return f"💾 Сохранить в словарь: /phrase {first} — {source_text.strip()}"

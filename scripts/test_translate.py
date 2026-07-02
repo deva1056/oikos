@@ -49,28 +49,7 @@ def test_prompt():
         tr._complete = orig
 
 
-# ---------- 2. эвристика подсказки 💾 (только ru→cz, коротко) ----------
-
-def test_phrase_hint():
-    h = tr.phrase_hint("Мне нужно продлить проездной", "Musím si prodloužit kupón.")
-    check(h == "💾 Сохранить в словарь: /phrase Musím si prodloužit kupón. — Мне нужно продлить проездной",
-          "ru→cz коротко → подсказка с готовой командой")
-
-    h = tr.phrase_hint("Мне нужно продлить проездной",
-                       "Musím si prodloužit kupón.\n💡 kupón — это проездной, ложный друг")
-    check(h and "💡" not in h, "заметки 💡 не попадают в подсказку (берётся первая строка)")
-
-    check(tr.phrase_hint("Musím si prodloužit kupón", "Мне нужно продлить проездной.") is None,
-          "cz→ru → подсказки нет")
-    long_result = "Tohle je opravdu velmi dlouhy preklad ktery se nevejde do slovniku nikdy"
-    check(tr.phrase_hint("Длинная русская фраза", long_result) is None, "длиннее 60 → нет")
-    check(tr.phrase_hint("привет", "") is None and tr.phrase_hint("", "ahoj") is None,
-          "пустые вход/выход → нет")
-    check(tr.phrase_hint("сложная мысль", "⚠️ упрощено: пришлось убрать идиому") is None,
-          "первая строка без латиницы (служебная) → нет")
-
-
-# ---------- 3. извлечение текста из апдейта (args / reply) ----------
+# ---------- 2. извлечение текста из апдейта (args / reply) ----------
 
 class _Msg:
     def __init__(self, text=None, caption=None, reply=None):
@@ -102,6 +81,5 @@ def test_extract_text():
 
 if __name__ == "__main__":
     test_prompt()
-    test_phrase_hint()
     test_extract_text()
     print(f"\nВСЕ {_passed} проверок прошли ✅")

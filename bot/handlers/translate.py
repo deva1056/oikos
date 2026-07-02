@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 
 from core.auth import is_allowed
 from core.memory import get_member_name
-from core.translate import phrase_hint, translate
+from core.translate import translate
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +67,6 @@ async def _translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if result is None:
         await update.message.reply_text(LLM_ERROR)
         return
-
-    # подсказка про словарь — только для коротких ru→cz (словарь чешский)
-    if target == "cz":
-        hint = phrase_hint(text, result)
-        if hint:
-            result = f"{result}\n\n{hint}"
     await update.message.reply_text(result)
 
 
